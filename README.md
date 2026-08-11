@@ -16,7 +16,6 @@ Oritasy is a single-DLL mod that combines aircraft / unit tuning, flight assists
 - Stock airframes become modified **XE** types with encyclopedia tag `[Oritasy]`
 - Ships **NE** / `[Thanos]`, ground vehicles **TE** / `[Unitas]`, buildings `[Bexur]`
 - Per-airframe thrust, fuel, gear, and flight-envelope tuning (F1)
-- Optional **J-35A** hangar clone of the FS-12 with Draken visual (`J35AAssets`)
 - Nuke shock / blast resist tiers for aircraft, ships, buildings, and vehicles
 
 ### Flight tools
@@ -68,7 +67,6 @@ Recommended filename: `Oritasy.dll`
 
 ```text
 WeXonAssets\     AAM-IV.obj + textures (ACM bus skin)
-J35AAssets\      j35.obj + hull textures (J-35A visual)
 OritasyMusic\    optional custom BGM folders (menu, combat, …)
 ```
 
