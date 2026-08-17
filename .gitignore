@@ -6,6 +6,7 @@
 *.lo
 *.o
 *.obj
+!Kh85MT/assets/*.obj
 
 # Precompiled Headers
 *.gch
