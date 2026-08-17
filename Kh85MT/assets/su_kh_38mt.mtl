@@ -1,0 +1,17 @@
+newmtl 1db0a800-e29e-4773-98f3-76ff6773b53f
+Kd 1.000 1.000 1.000
+Ks 0.000 0.000 0.000
+Ns 30
+Ke 0.000 0.000 0.000
+map_Kd textures/su_kh38_mt_missile_c.jpg
+map_Ks textures/su_kh38_mt_missile_n_s.jpg
+map_normal textures/su_kh38_mt_missile_n_n.jpg
+map_ao textures/su_kh38_mt_missile_n_ao.jpg
+
+newmtl 851d92fe-55e7-4c06-85ef-345a9a7c3a11
+Kd 0.000 0.000 0.000
+Ks 0.000 0.000 0.000
+Ns 255
+Ke 0.000 0.000 0.000
+d 0.6
+

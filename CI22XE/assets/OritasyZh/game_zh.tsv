@@ -1,0 +1,637 @@
+# Oritasy whole-game ZH dictionary (English<TAB>中文)
+# Generated for 0.0.9.50C — menus/keybinds/encyclopedia/HUD
+# Lines starting with # ignored. Descriptions may use \n escapes.
+# Expand path: append more EN\tZH rows; restart or toggle language.
+12.7mm Machine Gun	12.7mm 机枪
+12.7mm MG Emplacement	12.7mm 机枪阵地
+12.7mm Rotary Machine Gun	12.7mm 转管机枪
+120kw Laser	120kW 激光
+127mm Cannon	127mm 舰炮
+127mm Guided Shell	127mm 制导炮弹
+130mm Cannon	130mm 火炮
+155mm Cannon	155mm 火炮
+155mm Guided Shell	155mm 制导炮弹
+155mm Railgun	155mm 轨道炮
+20kw Laser	20kW 激光
+20mm Autocannon	20mm 机炮
+20mm Rotary Cannon	20mm 转管炮
+23mm AAA Emplacement	23mm 高炮阵地
+23mm Autocannon	23mm 机炮
+25mm Autocannon	25mm 机炮
+25mm Rotary Cannon	25mm 转管炮
+27mm Autocannon	27mm 机炮
+30mm Cannon	30mm 火炮
+30mm Chaingun	30mm 链式炮
+30mm Rotary Cannon	30mm 转管炮
+35mm Autocannon	35mm 机炮
+40mm Cannon	40mm 火炮
+40mm GMG	40mm 自动榴弹发射器
+40mm Grenade	40mm 榴弹
+57mm Cannon	57mm 火炮
+7.5MM LMG	7.5mm 轻机枪
+70mm AT	70mm 反坦克
+70mm Light AT	70mm 轻型反坦克武器
+76mm Cannon	76mm 火炮
+76mm Guided Shell	76mm 制导炮弹
+80kw Laser	80kW 激光
+A 10kg HE warhead housed in a fin-stabilised airframe. Uses canard control for terminal guidance that is provided by an electro-optical seeker head.	10kg 高爆战斗部，尾翼稳定弹体；鸭舵末端制导，由光电导引头提供终端引导。
+A 10m section of concrete wall	10m 段混凝土墙
+A 3kg HE warhead housed in a fin-stabilised airframe. Uses canard control for terminal guidance that is provided by an electro-optical seeker head.	3kg 高爆战斗部，尾翼稳定弹体；鸭舵末端制导，由光电导引头提供终端引导。
+A cargo hook with a 20m (65ft) line for slinging external loads and recovering downed pilots.	带 20m 吊索的货钩，用于外吊载荷与救援飞行员。
+A compact and advanced multirole fighter, the Vortex is capable of operating vertically from small carriers and remaining undetected thanks to outstanding stealth characteristics. While fast, agile, and stealthy when lightly loaded, these characteristics can suffer when carrying a heavy payload of weapons.	紧凑先进的多用途战斗机，可从小型航母垂直运作，并以出色隐身保持隐蔽。轻载时又快又灵又隐；重载时这些特性会显著下降。
+A concealed front line fighting position of an infantry team armed with light machine guns, grenades, and rocket launchers. Capable of ambushing unsuspecting vehicles that enter its field of fire.	隐蔽前线步兵战斗阵地，装备轻机枪、榴弹与火箭筒，可伏击进入射界的车辆。
+A Hexhound equipped with a four-shot IRM-S1 launcher. Its small profile makes it hard to detect, allowing it to ambush low flying air targets.	装备四联 IRM-S1 的六足猎犬；轮廓小、难发现，适合伏击低空目标。
+A Hexhound equipped with an automatic grenade launcher. The grenade launcher is able to rain indirect fire on datalink targets within 2km.	装备自动榴弹发射器的六足猎犬，可对 2km 内数据链目标实施间接火力。
+A high drag 125kg bomb, ideal for destroying vehicles in extremely low attacks.	高阻 125kg 炸弹，适合极低空摧毁车辆。
+A large, carrier capable, twin engine multirole fighter, the Ifrit is equally suited to air superiority and ground attack missions. It features excellent thrust and maneuverability alongside reduced radar signature and powerful sensors. Two internal weapon bays plus two additional side bays for heat-seeking missiles allow the Ifrit to carry a significant internal payload without impacting stealth or top speed.	大型舰载双发多用途战斗机，空优与对地兼优。推力与机动出色，雷达特征降低且传感器强大。两个主内置弹舱另加两个热寻导弹侧舱，使伊弗利特可在不影响隐身与极速的情况下携带可观内置载荷。
+A Laser Air Defence System capable of destroying small calibre aerial munitions.	激光防空系统，可摧毁小口径空中弹药。
+A lightly armed and armored personnel carrier built on the Modular Support Vehicle chassis	建于模块支援车底盘的轻武轻甲运兵车。
+A low-footprint vehicle manufacturing facility, housing an entirely automated production chain. Lighting, heating, and floorspace requirements are only considered for the handful of quality assurance workers overseeing the facility. Factory buildings supply a specific type of vehicle to a faction's inventory.	占地小的全自动车辆制造设施；照明采暖与面积仅考虑少量质检人员。工厂为阵营库存提供特定类型车辆。
+A missile using a ramjet for beyond visual range (BVR) engagement.	采用冲压发动机的超视距（BVR）空空导弹。
+A Modular Support Vehicle equipped with a 20mm rotary gun to provide point defence against shells, missiles, bombs, and low flying aircraft.	模块支援车，20mm 转管炮对炮弹、导弹、炸弹与低空飞机实施点防御。
+A reinforced hangar which stores fighter aircraft and a small complement of nuclear warheads. It is resistant to bombs and missiles, often requiring multiple direct hits or large/penetrating munitions to destroy it.	加固机库，存放战斗机与少量核弹头。抗炸弹与导弹，通常需多次直接命中或大型/侵彻弹药才能摧毁。
+A single 10-ton container for replenishing a warship's ammunition stores. Has floatation devices and can be picked up by ships within 200m after being placed in the water. Avoid subjecting the containers to large impact forces, as they may detonate.	10 吨级舰艇弹药补给集装箱，有浮具，入水后 200m 内可被舰船拾取。避免剧烈撞击，否则可能殉爆。
+A single RAM45 launcher turret.	单座 RAM-45 发射塔。
+A single use, air transportable 1,500L fuel tank, commonly deployed at Forward Operating Bases.	一次性空运 1500L 燃油罐，常部署于前进作战基地。
+A small optically guided 125kg bomb, ideal for destroying vehicles and small buildings in low level attacks.	小型光学制导 125kg 炸弹，适合低空摧毁车辆与小型建筑。
+A small, remote-controlled, air-transportable combat engineering unit designed for light role forces. Combat engineering units are able to facilitate the repair and reconstruction of hangars, helipads and vehicle depots.	小型遥控可空运战斗工程单位，服务轻装部队；可协助修复机库、直升机坪与车辆库。
+A surface-launched active radar homing missile. Uses a combination of inertial guidance and terminal radar homing, and can be fired at aerial targets on datalink from beyond visual range.	地射主动雷达寻的导弹；惯导与末端雷达寻的结合，可对数据链空中目标超视距发射。
+A vehicle manufacturing facility, housing a production line and its associated machinery. Factory buildings supply a specific type of vehicle to a faction's inventory.	车辆制造设施，包含生产线与相关设备。工厂为阵营库存提供特定类型车辆。
+A-19 Brawler	NOTA-10XE 超疣猪
+AAM-29 Scythe	AAM-29 镰刀
+AAM-36 Scimitar	AAM-36 弯刀
+AAM-2CV [IAL]	AAM-2CV [IAL]
+AAM-2CV [IAL] x2	AAM-2CV [IAL] x2
+AAM-2CV [IAL] x3	AAM-2CV [IAL] x3
+AAM-2CV [IAL] [5kt]	AAM-2CV [IAL] [5kt]
+AAM-2CV [IAL] [5kt] x2	AAM-2CV [IAL] [5kt] x2
+AAM-2CV [IAL] [5kt] x3	AAM-2CV [IAL] [5kt] x3
+Accept game Invite?	接受游戏邀请？
+Active AI aircraft	活跃 AI 飞机
+Add AI Aircraft per enemy Player	每名敌方玩家增加 AI 飞机
+Add Restricted Unit	添加受限单位
+Add Supply Unit	添加补给单位
+Additional airframes reserved per player	每名玩家额外预留机体
+AeroSentry SPAAG	空哨自行高炮
+AFV6 AA	AFV6 防空型
+AFV6 APC	AFV6 装甲运兵车
+AFV6 AT	AFV6 反坦克型
+AFV6 IFV	AFV6 步兵战车
+AFV6-AA	AFV6-防空
+AFV6-APC	AFV6-运兵
+AFV6-AT	AFV6-反坦克
+AFV6-IFV	AFV6-步战
+AFV8 APC	AFV8 装甲运兵车
+AFV8 IFV	AFV8 步兵战车
+AFV8 Mobile Air Defense	AFV8 机动防空
+AGM-48 	AGM-48
+AGR-18 Lynchpin	AGR-18 销钉
+AGR-24 Kingpin	AGR-24 主销
+AIR-2 Genie	AIR-2 精灵
+Airbase support vehicle capable of refueling aircraft parked within 300m	机场保障车，可为 300m 内停放飞机加油。
+Airbase traffic control tower	机场交通管制塔台
+Aircraft Revetment	飞机掩体
+Aircraft Skill Multiplier	飞机技能倍率
+Airframes to keep in reserve	预留机体数量
+Alkyon AB-4	AB-4XE 蜂鸟
+All hangars for this aircraft are currently in use, please try again in a moment...	该机型机库均在使用中，请稍后再试…
+Allow Event Content	允许活动内容
+Allow Player Respawn	允许玩家重生
+Allowing a traverse range from -10 to +10 degrees and an elevation range from -20 to +5 degrees, this aimable cannon pod is effective against light armor or aircraft at distances of up to 2000m.	可俯仰/偏转瞄准的机炮吊舱，对轻装甲或飞机在约 2000m 内有效。
+Allows continuous weapon rearmament for ground vehicles and aircraft within 100m. Avoid subjecting the container to large impact forces, as it may detonate.	可为 100m 内地面载具与飞机持续补弹。避免剧烈撞击，否则可能殉爆。
+ALND-4 (20kt)	ALND-4（20千吨）
+Ammo Dump	弹药堆场
+An air transportable 10,000L fuel tank, commonly deployed at Forward Operating Bases.	空运 10000L 燃油罐，常部署于前进作战基地。
+An air transportable 6,000L fuel tank, commonly deployed at Forward Operating Bases.	空运 6000L 燃油罐，常部署于前进作战基地。
+An amphibious assault ship which can support rotary wing and V/STOL aircraft operations. It has a well deck from which it can launch landing craft, and it can perform shore bombardment with its 76mm cannon and dual-purpose 40mm point defence guns.	两栖攻击舰，可支援旋翼与短距/垂直起降飞机；设有坞舱以放出登陆艇，并以 76mm 炮与双用途 40mm 点防炮实施对岸火力。
+An armored personnel carrier upfit for the Linebreaker chassis, this troop transport is well protected with good off-road mobility	破阵者底盘的装甲运兵型，防护良好且越野机动出色。
+An autoloaded 76mm gun, firing fin-stabilised guided projectiles. The gun requires airflow for cooling. It has a maximum firerate of 60RPM for 10 seconds, and can sustain a constant firerate of at least 40 RPM while moving at 500kph	自动装填 76mm 炮，发射尾翼稳定制导弹；需气流冷却。最高射速 60RPM 可持续约 10 秒，500kph 机动时可维持至少 40RPM。
+An elevated, air conditioned chair for a human sentry. Reveals targets within a 5km radius, and will defend itself with small arms fire within a 1km radius.	高架有空调的哨位。可揭示 5km 内目标，并在 1km 内以轻武器自卫。
+An extended range guided artillery shell, using a combination of inertial navigation and terminal laser guidance to improve its accuracy.	增程制导炮弹，惯导与末端激光制导相结合以提高精度。
+An fast firing, autoloaded 57mm gun, firing high velocity unguided shells. When fired against air targets, the shells use a proximity fuse to deal fragmentation damage.	高射速自动装填 57mm 炮，发射高速非制导炮弹；对空时使用近炸引信造成破片杀伤。
+An open stockpile for storing conventional ammunition. Can resupply units within 300m.	露天常规弹药堆场，可为 300m 内单位补给。
+Annex Class Carrier	附属级两栖攻击舰
+Argus Class Frigate	阿尔戈斯级护卫舰
+AT-145 Emplacement	AT-145 阵地
+Auto Save	自动保存
+Auto Save Settings	自动保存设置
+Auto-Purge After	自动清理于
+Auto-Save Frequency	自动保存频率
+Automatic grenade launcher firing low-velocity 40mm explosive rounds, ideal for destroying small buildings or groups of lightly-armored targets	低速 40mm 爆炸榴弹自动发射器，适合摧毁小型建筑或轻装甲集群。
+Aviation fuel depot that can fill empty aircraft tanks within 300m.	航空燃油库，可为 300m 内飞机加油。
+Base Pitch Damping	基础俯仰阻尼
+Bend D25x45deg 2D	弯段 D25×45° 2D
+Bend D25x45deg 4D	弯段 D25×45° 4D
+Boltstrike RAM45 Launcher	雷击 RAM-45 发射器
+Boscali	博斯卡利
+Bristling with air defense weapons, the Argus class is a missile frigate designed to protect valuable assets from air attack. Capable of locking down airspace in a wide radius, it is an essential component of BDF naval doctrine. The Argus class is fitted with the NL-98 active radar homing missile, capable of engaging datalinked targets at beyond visual ranges.	布满防空武器的导弹护卫舰，用于保护高价值目标免受空袭。可大范围封锁空域，是博斯卡利国防军（BDF）海军学说的关键。装备 NL-98 主动雷达寻的导弹，可超视距打击数据链目标。
+Buy {Airframe} ?	购买 {Airframe} ？
+Camo Net 1	伪装网
+Can't edit both factions because supplies are not equal	补给不相等，无法同时编辑双方阵营
+Can't edit both factions because values are not equal	价值不相等，无法同时编辑双方阵营
+Capable of tracking multiple aerial units at ranges of up to 100km (60m).	可在约 100km 跟踪多个空中单位。
+Cargo Hook	吊运挂钩
+Carried by air defense vehicles and light aircraft, this heat-seeking missile is effective against air targets at a range up to 5km	由防空车辆与轻型飞机携带的红外寻的导弹，对空目标有效射程约 5km。
+CHANGE NOTES (OPTIONAL)	更新说明（可选）
+Changing this will rename the project folder	更改此项将重命名项目文件夹
+CI-22 Cricket	CI-22XE 超级蟋蟀
+Circle	圆形
+climbRate	爬升率
+Cloud Height	云高
+Color	颜色
+Column 50m	立柱 50m
+Command vehicle capable of distributing targets from a radar to individual SAM launchers in a battery	指挥车，可将雷达目标分配给防空连内各发射车。
+Concrete barrier	混凝土路障
+Concrete Pad	混凝土坪
+Concrete Wall	混凝土墙
+Concrete Wall 10m	混凝土墙 10m
+Cone D25x20m	锥体 D25×20m
+Cone D40x20m	锥体 D40×20m
+Cone D40x25m	锥体 D40×25m
+Confined space compatible shoulder fired recoilless rifle	可在密闭空间使用的肩射无后坐力反坦克武器。
+Container blue	集装箱（蓝）
+Container orange	集装箱（橙）
+Container red	集装箱（红）
+Container stack	集装箱堆
+Container white	集装箱（白）
+Contribution Amount	捐献数额
+Control Tower	塔台
+Cooling Tower	冷却塔
+Copy Error	复制错误
+Counter	计数
+Create Default	创建默认
+Create Manual Save	创建手动存档
+Cursor Class LFD	光标级轻型航母
+Cylinder D20x50m	圆柱 D20×50m
+Cylinder D25x50m	圆柱 D25×50m
+Debug Visualizations	调试可视化
+Demolition Bomb	爆破炸弹
+Designed for a PALA fast vertical lift program in the 2050s, the UH-90 was conceptualized as a medium-sized compound utility helicopter, but has since been fitted with numerous weapon stations allowing it to occupy a gunship role. Featuring a coaxial rigid rotor system and two reversible turbine-electric ducted fans in pusher configuration, the Ibis can rapidly reach high cruising speeds before decelerating to a vertical landing in less than 30 seconds.	UH-90 源自 2050 年代快速垂直起降计划，初为中型复合多用途直升机，后加装多处武器站可兼任武装直升机。共轴刚性旋翼与两台可逆涡轮电动涵道推进风扇，使朱鹭能快速到达高巡航速度，并在 30 秒内减速垂直着陆。
+Designed for counter insurgency operations and low-intensity battlefields, the CI-22 Cricket features robust landing gear and short takeoff and landing capability, allowing it to operate from unprepared fields. While lacking in speed and survivability, the CI-22 possesses remarkable agility and the ability to mount an array of weapon types	为反叛乱与低烈度战场设计，CI-22 蟋蟀起落架坚固并具备短距起降能力，可在简陋机场运作。虽缺乏速度与生存力，但机动出色并可挂载多种武器。
+Designed for long-range precision strikes against high value targets, this tactical ballistic missile leaves the atmosphere before reentering on a steep trajectory, exceeding Mach 4 on impact. The Piledriver is virtually impossible to intercept without long range missile defenses in the vicinity of the target.	远程精确打击高价值目标的战术弹道导弹，离大气层后陡峭再入，撞击超过 4 马赫。若目标附近无远程导弹防御，几乎无法拦截。
+Designed for rapidly delivering vehicles from Annex class assault carriers to landing points, this fast hovercraft can carry up to 80 tons of cargo and is equipped with an IRM-S1 launcher and heavy machine gun for self defense.	用于从附属级两栖攻击舰向登陆点快速投送车辆的气垫船，载重约 80 吨，并配备 IRM-S1 与重机枪自卫。
+Designed specifically for anti-armor applications, this short range fire-and-forget missile is ideal for penetrating well protected tanks from any angle.	专为反装甲设计的短程发射后不管导弹，可从任意角度击穿防护良好的坦克。
+Designed to supplement and eventually replace human sentries, the pillbox represents part of a networked perimeter monitoring system. The hardened structure houses a pair of autonomous 12.7mm machine gun turrets.	用于补充并最终取代人类哨兵的网络化周界监控节点；加固结构内有一对自主 12.7mm 机枪塔。
+Directional offensive jammer, capable of blinding one targeted radar per pod at ranges of up to 50km.	定向进攻干扰吊舱，每个吊舱可在约 50km 致盲一部被选中的雷达。
+Distribute Excess Funds	分配多余资金
+Dynamo Class Destroyer	发电机级驱逐舰
+Effective against ground targets or slow-flying aircraft at ranges of up to 8km, the AGM-48 can maneuver erratically to make interception difficult.	对地面目标或慢速飞机在约 8km 内有效；可做不规则机动以规避拦截。
+Enrichment Plant	浓缩工厂
+Escalation Co-op as BDF	升级协作（BDF）
+Escalation Status	升级状态
+EW-25 Medusa	EW-25XE 美杜莎
+Eyeball Mk.II	眼球 Mk.II
+Faction Starting Balance	阵营起始资金
+Featuring 8 IR missile launchers, this air defense system is capable of intercepting missiles and aircraft at a range of up to 5km	配备 8 具红外导弹发射器，可在约 5km 内拦截导弹与飞机。
+Featuring a unique 3-post ducted thrust system, this trainer doubles as an affordable attack aircraft with VTOL capability. The Vagrant is highly maneuverable and capable of transonic speeds, while also featuring a radar to allow engagement of air targets at beyond visual range. Although lacking advanced stealth features, the VT-7 continues to serve as the backbone of BDF naval aviation.	独特三支柱涵道推力教练机，兼作可负担的垂直起降攻击机。流浪者机动出色可达跨音速，并有雷达以超视距打击空中目标。虽缺先进隐身，仍是博斯卡利国防军海军航空的骨干。
+Featuring powerful engines, a stealthy silhouette, and 4 large internal weapon bays, the SFB-81 Darkreach is a formidable bomber capable of deploying both conventional and nuclear weapons. Its blended wing design allows the Darkreach to conduct operations in a variety of flight regimes, from low-altitude penetrating strikes to standoff strategic bombardment.	SFB-81 暗域具备强劲发动机、隐身外形与 4 个大型内置弹舱，可投送常规与核武器。翼身融合设计使其能在低空突防到远程战略轰炸等多种飞行状态作战。
+FGA-57 Anvil	FGA-57 铁砧
+File	文件
+Firing .50 caliber ammunition, the 12.7mm machine gun is effective against aircraft and lightly armored surface targets at ranges of up to 1km (0.61 miles).	发射 .50 口径弹药，12.7mm 转管机枪可有效打击飞机与轻装甲地面目标，射程约 1km。
+Firing 57mm proximity fused explosive shells, the Anvil is capable of dealing devastating volleys against both air and land targets	发射 57mm 近炸高爆弹，可对空中与地面目标造成毁灭性齐射。
+Flare Stack	火炬塔
+Flat Platform	平底平台
+Flying at subsonic speeds along a terrain-hugging flight path, this cruise missile is difficult to detect and can overwhelm defenses in large numbers.	亚音速贴地巡航导弹，难以探测，可大批量饱和防御。
+FS-12 Revoker	FS-12XE '特殊'解放者
+FS-20 Vortex	FS-20XE 狂涡
+Fuel Container 10,000L	燃油容器 10000L
+Fuel Container 1500L	燃油容器 1500L
+Fuel Container 6000L	燃油容器 6000L
+Fuel Depot	燃油库
+Gabion Wall 10x1.5x1.5	石笼墙 10×1.5×1.5
+Gabion Wall 20x3x3	石笼墙 20×3×3
+Gear Trim	起落架配平
+gForce	过载
+Give away	赠送
+gMax	最大过载
+GPO-2P Auger	GPO-2P 螺旋钻
+GPO-N (1.5kt)	GPO-N（1.5千吨）
+GPO-N (250kt)	GPO-N（250千吨）
+Graph	图表
+Green	绿色
+Group	编组
+Group of 8 troops which stay with the aircraft, providing the ability to capture buildings and airbases when landed nearby	8 人步兵班随飞机行动，降落附近时可占领建筑与机场。
+Guard Tower	哨塔
+Guided thermonuclear bomb, set to strategic yield. Detonates after a minimum time delay of 16 seconds, when below 500m (1650ft) altitude. Unless being lofted, level bombing should be carried out at a minimum of 1300m(4300ft).	制导热核炸弹，战略当量。最少延时 16 秒，并在高度低于 500m 时起爆。非上抛投放时，平投高度建议至少 1300m。
+Guided thermonuclear bomb, set to tactical yield. Detonates after a minimum time delay of 8 seconds, and when below 150m (500ft) altitude. For laydown delivery, it will deploy a parachute to allow the bomb to survive impact with the ground when dropped below 300m (1000ft).	制导热核炸弹，战术当量。最少延时 8 秒，并在高度低于 150m 时起爆。低空投放时可开伞以在低于 300m 落地时幸存。
+GUN 12.7MM	12.7mm 机枪
+GUN 12.7MM ROT	12.7mm 转管机枪
+GUN 20MM POD	20mm 机炮吊舱
+GUN 25MM POD	25mm 机炮吊舱
+GUN 25MM ROT	25mm 转管炮
+GUN 27MM	27mm 机炮
+GUN 30MM	30mm 航炮
+GUN 30MM ROT	30mm 转管炮
+GUN 35MM	35mm 机炮
+GUN 76MM	76mm 火炮
+Hangar for storing medium-sized aircraft	存放中型飞机的机库
+Harbor Crane	港口起重机
+Hardened Aircraft Shelter	加固机库
+Heartland	腹地
+Heavy duty tractor cab for hauling large trailer systems	牵引大型挂车系统的重型牵引车头。
+Heavy thermobaric guided bomb capable of devastating soft targets over a wide area. Best used against buildings or lightly defended groups of vehicles.	重型温压制导炸弹，可大范围摧毁软目标；最适合建筑或防御薄弱的车队。
+Height	高度
+Helipad	直升机坪
+Hexhound GMG	六足猎犬 榴弹型
+Hexhound SAM	六足猎犬 防空型
+High energy laser weapon designed to intercept missiles and bombs at ranges of up to 15km.	高能激光武器，可在约 15km 内拦截导弹与炸弹。
+HLT Fire Control	重型后勤车 火控
+HLT Flatbed	重型后勤车 平板
+HLT Fuel Tanker	重型后勤车 加油
+HLT Mobile Artillery	重型后勤车 机动火炮
+HLT Munitions Truck	重型后勤车 弹药
+HLT Radar Truck	重型后勤车 雷达
+HLT Tractor	重型后勤车 牵引
+HLT-CRAM	HLT-CRAM 近防炮
+HLT-HEL	HLT-HEL 激光防空
+Hull down circular	圆形掩体斜坡
+Hull down square	方形掩体斜坡
+Hyperion Class Carrier	许珀里翁级航母
+Ignus Archipelago	伊格努斯群岛
+Ignus Archipelago | Mountain Pass	伊格努斯群岛 | 山口
+Infantry Bunker	步兵碉堡
+Infantry Squad	步兵班
+Intermediate cartridge. It tickles.	中间威力枪弹。挠痒痒的。
+IRM-S1 Emplacement	IRM-S1 阵地
+Item	物品
+Item Type	物品类型
+Jammed Noise	干扰噪声
+JAMMER POD	干扰吊舱
+Joinable Factions	可加入阵营
+Kill Reward Multiplier	击杀奖励倍率
+KR-67 Ifrit	KR-67XE 堕天使
+Label	标签
+Large Factory	大型工厂
+Large Platform	大型平台
+LASER 120KW	120kW 激光
+LASER 20KW	20kW 激光
+LASER 80KW	80kW 激光
+Last Modified	最后修改
+LCV25 AA	LCV25 防空型
+LCV25 AT	LCV25 反坦克型
+LCV25 SAM	LCV25 防空导弹型
+LCV45 Recon Truck	LCV45 侦察车
+Lead	前置
+Light Machine Gun	轻机枪
+Linebreaker APC	破阵者 装甲运兵车
+Linebreaker IFV	破阵者 步兵战车
+Linebreaker SAM	破阵者 防空导弹
+Load More	加载更多
+Logistics vehicle with a loading system capable of handling a variety of tasks	具备装卸系统的后勤车，可执行多种任务。
+Long range air defense trailer capable of engaging aerial targets detected by nearby radar trucks	远程防空拖车，可打击附近雷达车探测到的空中目标。
+Long range air defense unit capable of engaging aerial targets detected by nearby radar trucks	远程防空单位，可打击附近雷达车探测到的空中目标。
+Long range artillery rocket with inertial navigation and terminal laser guidance to improve accuracy. A thermobaric warhead provides enhanced blast effects, ideal for demolishing buildings and defensive structures.	远程火箭弹，惯导与末端激光制导提高精度；温压战斗部强化爆破，适合摧毁建筑与防御工事。
+Long range ground launched semi-active radar homing missile	远程地射半主动雷达寻的导弹
+Long range launcher armed with a pair of 20kt Nuclear Piledrivers. Will deploy and fire automatically on known datalinked targets once the strategic escalation threshold is met.	远程发射车，携带一对 20kt 核打桩机；战略升级阈值达标后自动对数据链目标展开射击。
+Long range launcher armed with a pair of HE Piledrivers. Will deploy and fire automatically on known datalinked targets once the strategic escalation threshold is met.	远程发射车，携带一对高爆打桩机；战略升级阈值达标后，将对已知数据链目标自动展开并射击。
+Long-range anti-surface missile employing a quasi-ballistic trajectory, allowing it to reach distant targets at supersonic speeds.	远程反舰/反地导弹，采用准弹道轨迹，以超音速打击远距离目标。
+Long-range sky scanning radar	远程对空搜索雷达
+Low velocity from short tube, fired more opportunistically by infantry	短管低初速榴弹，多由步兵伺机发射。
+M12 Jackknife	M12 折刀
+Max Auto Saves	最大自动存档数
+Max Number of Wrecks	最大残骸数
+Max Response Airspeed	最大响应空速
+Max Response Rate	最大响应速率
+Medium Aircraft Hangar	中型机库
+Medium range 127mm rocket with a laser guidance package providing limited maneuverability. Launching aircraft must aim at the target and keep it selected to provide guidance.	中程 127mm 激光制导火箭，机动有限；发射机必须瞄准目标并保持选定以提供制导。
+Medium-range heat seeking missile ideal for attacking fast and maneuverable aircraft	中程红外寻的导弹，适合打击快速高机动飞机。
+Min Rank [2]	最低军衔 [2]
+Minimum Rank	最低军衔
+Minimum Value	最小值
+MLRS R	多管火箭
+MLRS Rocket	多管火箭弹
+Modular Support Vehicle carrying a Laser Air Defence System capable of destroying small calibre aerial munitions.	携带激光防空系统的模块支援车，可摧毁小口径空中弹药。
+Moon Phase	月相
+Move To Position	移动到位置
+MSV Ballistic Missile Launcher	模块支援车 弹道导弹发射车
+MSV CRAM	模块支援车 CRAM
+MSV Fire Control	模块支援车 火控
+MSV Flatbed	模块支援车 平板
+MSV Fuel Tanker	模块支援车 加油
+MSV LADS	模块支援车 激光防空
+MSV MLRS	模块支援车 多管火箭
+MSV MRAP	模块支援车 防地雷车
+MSV Munitions	模块支援车 弹药
+MSV Nuclear Ballistic Missile Launcher	模块支援车 核弹道导弹发射车
+MSV R9 Stratolance Launcher	模块支援车 R9 平流矛发射车
+MSV Radar	模块支援车 雷达
+MSV Tractor	模块支援车 牵引
+Munitions Bunker	弹药碉堡
+Munitions Container	弹药集装箱
+Munitions Pallet	弹药托盘
+Naval Ammo	舰用弹药
+Naval Container	舰用补给集装箱
+Naval Supply Container	舰用弹药补给箱
+Naval Supply Pallet	舰用补给托盘
+Need preview	需要预览
+No Mission Name	无任务名称
+No Moon	无月
+NON-NUCLEAR	非核
+Number of Lines	行数
+Occupying three structural hardpoints and weighing in at 1.6 tons loaded, this seven-barrelled, twin motor behemoth fires a mixed belt of 30mm armour piercing incendiary & HE rounds at 3000rpm. Can be made effective against the majority of enemy vehicles, buildings, and slow moving aircraft.	占用三个结构挂点，满载约 1.6 吨；七管双电机转管炮以 3000rpm 混射穿燃与高爆弹，可对付多数车辆、建筑与慢速飞机。
+OPEN ITEM	打开物品
+OPEN LOCAL	打开本地
+OPEN STEAM	打开 Steam
+Open User Folder	打开用户文件夹
+Optical	光学
+Optically guided 250kg bomb capable of destroying heavily armored vehicles and small buildings.	光学制导 250kg 炸弹，可摧毁重装甲车辆与小型建筑。
+Optically guided 250kg bomb, fitted with range extension kit to allow it to glide over long distances.	光学制导 250kg 炸弹，加装增程套件以长距离滑翔。
+Optically guided 500kg bomb, ideal for attacking convoys and large buildings.	光学制导 500kg 炸弹，适合打击车队与大型建筑。
+ORDER	命令
+OTB-31 landing craft	OTB-31 登陆艇
+Overall	总体
+OWNER	所有者
+Piledriver TBM	打桩机 战术弹道导弹
+Piledriver TBM (20kt)	打桩机战术弹道导弹（20千吨）
+Piledriver TBM (HE)	打桩机战术弹道导弹（高爆）
+Pillbox	碉堡
+Pilot	飞行员
+Pipeline	管线
+Pitch Trim Limit	俯仰配平限制
+Pitch Trim Rate	俯仰配平速率
+Player Allocation on Join	加入时玩家分配
+Player Mode	玩家模式
+Player Regular Income	玩家常规收入
+Player Starting Rank	玩家起始军衔
+Point-defence laser designed to intercept approaching missiles from within 2km.	点防御激光，可在约 2km 内拦截来袭导弹。
+Point-defence laser designed to intercept approaching missiles from within 8km.	点防御激光，可在约 8km 内拦截来袭导弹。
+Position	位置
+Powerful long-range all-aspect radar, capable of spotting aircraft even at altitudes as low as 5m (16ft)	强力远程全向雷达，即使在约 5m 超低空也能发现飞机。
+Prevent Players Donating Vehicles	禁止玩家捐献载具
+Prevent Players Joining Faction	禁止玩家加入阵营
+Preview (click to change)	预览（点击更改）
+Primeva	普里梅瓦
+PRIMEVA ARMED LIBERATION ALLIANCE	普里梅瓦武装解放联盟
+Protected parking area for aircraft, shielded from shrapnel	有防护的停机区，可遮蔽弹片。
+R45 Launcher	R45 发射器
+RADAR	雷达
+Radar Container	雷达集装箱
+Radar Jamming Pod	雷达干扰吊舱
+Radar Station	雷达站
+Radome	雷达罩
+RAM45 Launcher	RAM-45 发射器
+Random	随机
+Recent Saves	最近存档
+Reduce AI Aircraft per friendly player	每名友方玩家减少 AI 飞机
+Refinery Structure	炼油设施
+Refrigerated, in-ground bulk liquid gas storage. Thick concrete for insulation makes it difficult to damage with weapons fire.	冷藏地下大宗液气储存；厚混凝土保温使其难以被火力轻易破坏。
+Reinforced bunker for storing ammunition and nuclear warheads. Can resupply units within 300m. It is resistant to bombs and missiles, often requiring multiple direct hits or large/penetrating munitions to destroy it.	存放弹药与核弹头的加固碉堡，可为 300m 内单位补给。抗炸弹与导弹，通常需多次直接命中或大型/侵彻弹药才能摧毁。
+Rename and Overwrite!!	重命名并覆盖！！
+Request	请求
+Reserve aircraft from your faction's inventory	从阵营库存预留飞机
+Restrict Aircraft	限制飞机
+Restrict Weapon	限制武器
+Restricted Aircraft	受限飞机
+Restricted Weapons	受限武器
+Restrictions	限制
+Ring D50m	环体 D50m
+Rotation	旋转
+Round rampart to provide cover for vehicles	圆形壁垒斜坡，为车辆提供掩护
+Ruin Building	废墟建筑
+SAH-46 Chicane	SAH-46XE 湾流
+Save As Copy	另存副本
+Save As Copy and Overwrite!!	另存副本并覆盖！！
+Score Rank Multiplier	得分军衔倍率
+Set From Current	从当前设置
+SFB-81 Darkreach	SFB-81XE 暗域
+Shard Class Corvette	碎片级护卫艇
+Short range 70mm rocket with a laser guidance package providing limited maneuverability. Launching aircraft must aim at the target and keep it selected to provide guidance.	短程 70mm 激光制导火箭，机动有限；发射机必须瞄准目标并保持选定以提供制导。
+Short-range anti-tank guided missile designed for knocking out vehicles, emplacements,  and small buildings	短程反坦克导弹，用于摧毁车辆、工事与小型建筑。
+Short-range heat seeking missile ideal for attacking fast and maneuverable aircraft	短程红外寻的导弹，适合打击快速高机动飞机。
+Side panels position	侧面板位置
+Single	单个
+Single Concrete barrier	单体混凝土路障
+Single Concrete wall	单体混凝土墙
+Single Container	单体集装箱
+Single-use container for replenishing a warship's ammunition stores. Has floatation devices and can be picked up by ships within 200m after being placed in the water.	一次性舰艇弹药补给集装箱，有浮具，入水后 200m 内可被舰船拾取。
+Single-use pallet for replenishing a warship's ammunition stores. Has floatation devices and can be picked up by ships within 200m after being placed in the water.	一次性舰艇弹药补给托盘，有浮具，入水后 200m 内可被舰船拾取。
+SLING	吊运
+Sloped Platform	斜坡平台
+Slower firing than its rotary counterparts, the 27mm Autocannon packs a heavier punch and is effective against both aircraft and moderately armored surface targets.	射速低于转管型，但单发威力更大，对飞机与中等装甲地面目标均有效。
+Small Munitions Pallet	小型弹药托盘
+Small Platform	小型平台
+Small Platform Columns	小型平台立柱
+Solar Panels	太阳能电池板
+SOUTH BOSCALI GENERAL AVIATION	南博斯卡利通用航空
+Spearhead MBT	矛头 主战坦克
+Special Flare	特殊热焰弹
+Special Smoke	特殊烟雾
+Sporting a powerful autocannon and anti-armor missiles, the Linebreaker Infantry Fighting Vehicle is a versatile unit capable of engaging both air and ground threats	装备强力机炮与反装甲导弹，可对空对地多种威胁作战。
+Square rampart to provide cover for vehicles	方形壁垒斜坡，为车辆提供掩护
+Stacked Containers	堆叠集装箱
+Starting Nuclear Warheads	起始核弹头
+Starting Supply	起始补给
+Storage Tank	储罐
+Strategic Nuclear Threshold	战略核阈值
+StratoLance R9	平流矛 R9
+StratoLance R9 Launcher	平流矛 R9 发射器
+Structural element	结构件
+Stuck	卡住
+Successful Sortie Bonus	成功出击奖励
+Supplies fissile material for nuclear weapons. Having an enrichment plant ensures a steady supply of nuclear warheads.	为核武器提供裂变材料；拥有浓缩厂可保证核弹头稳定供应。
+Support vehicle capable of rearming friendly units within 300m	保障车，可为 300m 内友军补弹。
+Surf Class Patrol Boat	冲浪级巡逻艇
+Surface Units Skill Multiplier	地面单位技能倍率
+Synthetic fuel production unit capable of converting a large variety of organic feedstocks into fertilizer and combustible fuels.	合成燃料生产单元，可将多种有机原料转化为肥料与燃料。
+T/A-30 Compass	T/A-30XE 超罗盘
+T9K41 Boltstrike	T9K41 雷击
+Tac Screen	战术屏幕
+TacScreen always IR	战术屏幕始终红外
+Tactical Nuclear Threshold	战术核阈值
+Takeoff point for VTOL aircraft	垂直起降飞机起飞点
+TBM HE	战术弹道导弹（高爆）
+The 25mm rotary cannon fires dual purpose explosive shells, effective against aircraft or moderately armored surface targets.	25mm 转管炮发射双用途爆炸弹，可打击飞机或中等装甲地面目标。
+The 35mm Autocannon packs a heavier punch than other aerial guns and is effective against many armored surface targets. Its superior ballistics allow it to remain effective at ranges exceeding 3000m.	比多数航炮更重的打击力，对多种装甲地面目标有效；弹道优越，有效射程可超过 3000m。
+The AFV6 is a fast, lightweight multipurpose armoured vehicle. This is a short range air-defence variant, with a potent 20mm rotary cannon and an IRM-S1 launcher.	AFV6 是快速轻型多用途装甲车。本型为近程防空型，配备强力 20mm 转管炮与 IRM-S1 发射器。
+The AFV6 is a fast, lightweight multipurpose armoured vehicle. This is an anti-armour variant, equipped with a large, long range multiple ATGM launcher. Internal stores of extra missiles reduce seating capacity substantially.	AFV6 是快速轻型多用途装甲车。本型为反装甲型，配备大型远程多联反坦克导弹发射器；额外导弹占用大幅降低载员。
+The AFV6 is a fast, lightweight multipurpose armoured vehicle. This is the default variant, an armoured personnel carrier. The increased seating capacity allows it to capture locations faster than other variants.	AFV6 是快速轻型多用途装甲车。本型为默认装甲运兵型，载员更多，占领地点更快。
+The AFV6 is a fast, lightweight multipurpose armoured vehicle. This variant is an infantry fighting vehicle with a 25mm cannon.	AFV6 是快速轻型多用途装甲车。本型为步兵战车，装备 25mm 机炮。
+The AFV8 Armored Personnel Carrier is a fast troop transport with a roof mounted machine gun to counter low-flying aerial threats and soft ground targets	AFV8 装甲运兵车是快速运兵平台，车顶机枪可对付低空威胁与软地面目标。
+The AGM-68 is a large, optically guided missile capable of destroying structures and heavily armored vehicles. It follows an unpredictable trajectory to avoid interception.	大型光学制导导弹，可摧毁建筑与重装甲车辆；飞行轨迹难以预测以规避拦截。
+The ALND-4 (Air Launched Nuclear Deterrent) is a long range subsonic cruise missile carrying a tactical nuclear warhead.	ALND-4（空射核威慑）为远程亚音速巡航导弹，携带战术核弹头。
+The ARAD-45 uses the same body as the RAM-45 missile, but with an anti-radiation seeker, which will lock on to radar emissions after launch, making it ideal for attacking SAM sites at medium range.	与 RAM-45 同弹体，换装反辐射导引头；发射后锁定雷达辐射，适合中距打击防空阵地。
+The AT-145 is a short-range anti-tank guided missile designed for knocking out vehicles, emplacements and small buildings.	AT-145 短程反坦克导弹阵地，用于摧毁车辆、工事与小型建筑。
+The Auger is a bunker busting gravity bomb with a precision guidance kit. It is capable of penetrating hardened structures before its large warhead detonates.	螺旋钻是配备精确制导组件的钻地重力炸弹，可穿透加固结构后引爆大型战斗部。
+The Brawler is a reliable and rugged platform built to carry large quantities of precision weapons. Advanced propfan engines combine endurance with respectable speed, while redundant control surfaces, isolated engines, and heavy cockpit armor provide excellent survivability. The A-19 is in its element when attacking convoys of vehicles, distributed short-range air defenses, or vessels operating in coastal waters.	搏击者是坚固可靠的对地平台，可挂载大量精确武器。先进的螺旋桨风扇发动机兼顾续航与速度；冗余舵面、隔离发动机与厚重座舱装甲提供出色生存力。擅长打击车队、分散的近程防空与近海舰船。
+The EW-25 is a short take-off, vertical landing (STOVL) support aircraft with a variety of powerful electronic warfare systems. Able to triangulate radar positions, jam enemy radar installations, suppress air defences, and even shoot down missiles with a high energy laser, a single Medusa can easily turn the tide of a battle.	EW-25 为短距起飞垂直着陆（STOVL）支援机，装备强大电子战系统。可三角定位雷达、干扰敌雷达、压制防空，甚至以高能激光击落导弹——单机即可扭转战局。
+The FS-12 Revoker is built for agility above all else, capable of extreme maneuvers at almost any speed. Internal weapon bays help reduce drag, allowing supersonic speeds even at low altitudes and with heavy payloads. While less stealthy than newer fighters, the Revoker remains a cost-effective means of establishing air superiority.	FS-12 撤销者以机动为先，几乎任何速度都能做极限机动。内置武器舱降低阻力，即使低空重载也能超音速。隐身不及新一代战机，但仍是建立制空权的高性价比选择。
+The Hyperion class features a short take-off ramp and arrestor gear on its landing runway, and can accommodate a variety of aircraft types. Defended by two MMR-S3 batteries, one RAM-45 launcher, and two 30mm CIWS turrets, this fleet carrier is capable of countering most aerial threats.	许珀里翁级设有滑跃起飞甲板与着舰拦阻索，可容纳多种机型。防御含两套 MMR-S3、一座 RAM-45 与两座 30mm 近防炮，可应对多数空中威胁。
+The IRM-S1 is a man-portable air defense system (MANPADS) effective at countering air threats within 5km. An infrared homing seeker allows the missile to lock onto any aerial target with a heat signature.	IRM-S1 便携式防空系统（MANPADS），可在 5km 内应对空中威胁；红外导引头可锁定有热特征的空中目标。
+The LCV25 is a 4x4 all terrain vehicle, offered in AA or AT configurations, combining the agility of a light recon vehicle with the firepower of heavier fighting vehicles. It is air transportable, with 2 units fitting inside the cargo bay of a VL-49 Tarantula.	LCV25 为 4×4 全地形车，有防空/反坦克构型，兼具轻侦机动与较重火力。可空运，VL-49 狼蛛货舱可装 2 辆。
+The SAH-46 Chicane retains a traditional attack helicopter configuation while incorporating upgrades that keep it a formidable presence on the battlefield of the late 21st Century. Cutting edge stealth technology allows the Chicane to conduct pop-up attacks from behind terrain and disappear from radar without a trace.	SAH-46 减速弯保持传统武装直升机布局，同时升级以在 21 世纪末战场保持威胁。尖端隐身技术使其可从地形后突然跃起攻击并从雷达上消失。
+The Surf Class is an inshore patrol vessel, nominally used for border protection and anti-piracy duties. While it lacks the staying power of larger ships, its speed and complement of vertically launched AGM-48s can make it a credible threat to them. The 30mm main gun has proximity fused shells and provides some amount of self-protection against missile attack.	冲浪级为近岸巡逻舰，名义上用于边境与反海盗。虽缺乏大型舰的续航与防护，但其速度与垂直发射 AGM-48 仍可构成威胁。30mm 主炮有近炸弹，可提供一定反导自卫。
+THEME	主题
+This 400kg cluster bomb dispenses 8 GS25 submunitions capable of independently finding and targeting hostile units in the vicinity.	400kg 集束炸弹，抛撒 8 枚 GS25 子弹药，可独立搜索并攻击附近敌方单位。
+This anti-radiation missile will lock on to radar emissions after launch, making it ideal for attacking SAM sites at beyond visual range.	反辐射导弹，发射后锁定雷达辐射，适合超视距打击防空阵地。
+This anti-ship cruise missile can be launched from aircraft or vertically by the Dynamo class Destroyer, using sea-skimming technique and supersonic speeds to penetrate the enemy's air defense systems.	反舰巡航导弹，可由飞机或发电机级驱逐舰垂直发射；掠海超音速突防。
+This anti-ship missile has a very low altitude cruise profile with a pop-up terminal attack mode designed to penetrate ship defenses. Can be deployed from aircraft or launched from an Argus Class Frigate.	反舰导弹采用超低空巡航与末端跃升攻击以穿透舰艇防御；可由飞机或阿尔戈斯级护卫舰发射。
+This armored air defense vehicle combines off-road mobility with 12 short-range IR missiles capable of engaging low-flying aircraft	装甲防空车，越野机动并携带 12 枚近程红外导弹，可打击低空飞机。
+This compact warship is well equipped for defending coastal areas, armed with a 57mm cannon, 20mm point defense system, and battery of vertically launched RAM-45 missiles. A small landing pad at the stern allows it to serve as a mobile re-arming and refueling point for helicopters.	紧凑军舰，适合近海防御；装备 57mm 炮、20mm 点防与垂直发射 RAM-45。舰尾小型甲板可为直升机提供机动补给加油点。
+This formidable anti-air unit incorporates a radar capable of tracking multiple aerial targets at a range of up to 15km, and carries 16 vertical-launch missiles which can be fired in rapid succession	强大防空单位，整合约 15km 多目标跟踪雷达，并携带 16 枚可快速连射的垂直发射导弹。
+This glide bomb deploys folding wings, giving it an extended range from altitude. Guided by an optical seeker during the terminal phase, the PAB-80LR features a small radar cross-section and no IR signature.	展开折叠翼的滑翔炸弹，可从高空获得更远射程；末端由光学导引头制导，雷达截面小且无红外特征。
+This guided missile destroyer is armed with a battery of vertically launched cruise missiles and a 155mm railgun in its forward turret. Its powerful defensive armament of two MMR-S3 batteries, three R9 vertical launchers and four 30mm CIWS turrets, makes the Dynamo class a powerful warship, able to defend a fleet from any threat.	导弹驱逐舰，装备垂直发射巡航导弹与前部 155mm 轨道炮。防御含两套 MMR-S3、三具 R9 垂直发射与四座 30mm 近防炮，可防护舰队免受多数威胁。
+This gun shoots 30mm explosive shells effective against armored ground vehicles and buildings at ranges of over 2km (1.3m).	发射 30mm 爆炸弹，可打击装甲车辆与建筑，射程超过 2km。
+This heavy machine gun mounted on a tripod is low-cost means of defending point targets from light vehicles and low flying helicopters. Its small size and low profile make it difficult to spot from a distance.	三角架重机枪阵地，低成本防御轻型车辆与低空直升机；体积小、轮廓低，远距离难以发现。
+This manually aimed static air defense position is a simple and low-cost means of defending point targets from helicopters and other low-flying aircraft. Its small size and low profile make it difficult to spot from a distance.	手动瞄准的固定防空阵地，低成本防御直升机与低空飞机；轮廓低，不易被远距离发现。
+This modified AGM-48 replaces the missile's usual warhead with a panoramic optical sensor suite capable of detecting enemy targets and registering them as contacts on faction datalink	改装 AGM-48，以全景光学传感器套件取代战斗部，可探测敌军目标并登记为阵营数据链接触。
+This rotary cannon fires 20mm explosive shells at 6000 rounds per minute, making it highly effective against aerial targets.	该转管炮以每分钟 6000 发发射 20mm 爆炸弹，对空目标极为有效。
+This self-propelled anti-aircraft gun sports twin 30mm autocannons firing proximity-fused shells, capable of accurately striking fast-moving targets at ranges of over 4000m	自行高炮，双联 30mm 近炸引信机炮，可在 4000m 外精确打击快速目标。
+This trailer is equipped with a 20mm rotary gun to provide point defence against shells, missiles, bombs, and low flying aircraft.	拖车装备 20mm 转管炮，对炮弹、导弹、炸弹与低空飞机实施点防御。
+This transportable air defense missile launcher capable of engaging aerial targets within 15km. It can be deployed by a utility aircraft and obtains target info from a nearby radar.	可运输防空导弹发射器，约 15km 内打击空中目标；可由运输机部署，并从附近雷达获取目标信息。
+This transportable air defense radar unit can track multiple targets at ranges of up to 17km. It can be deployed by a utility aircraft and is able to provide target info to nearby SAM batteries.	可运输防空雷达，约 17km 内跟踪多目标；可由运输机部署，并向附近防空连提供目标信息。
+This upfit for the AFV8 chassis features a 25mm cannon and anti-armor missile launcher, turning it into a fast infantry fighting vehicle.	在 AFV8 底盘上加装 25mm 机炮与反装甲导弹，成为快速步兵战车。
+Though lightly armed and armored, the LCV45 is a fast vehicle ideal for forward scouting	武防薄弱但速度快，适合前方侦察。
+Time	时间
+Time Factor	时间倍率
+Time of Day	一天中的时间
+Title	标题
+TOP	顶部
+Top panel position	顶栏位置
+Tower Crane	塔式起重机
+Tractor unit for hauling trailer systems	牵引挂车系统的牵引车。
+TRENDING	热门
+Truss 50m	桁架 50m
+Tusko-B (HE)	图斯科-B（高爆）
+Type-12 MBT	12式主战坦克
+UH-90 Ibis	UH-90XE 眼镜王蛇
+Unable to reserve from faction's inventory	无法从阵营库存预留
+Unguided air-to-air rocket with a 1.5kt nuclear warhead and a 12-second time delay fuse. Why is this still in the inventory?	无制导空空火箭，携带 1.5kt 核弹头与 12 秒延时引信。为什么还在库存里？
+UNIT SYTEM	单位制
+Units, Map & Color Codes	单位、地图与色标
+Untitled Mission	未命名任务
+Upon arrival within 2.5km (1.6mi) of the designated target, this 500kg glide bomb dispenses 12 GS25 submunitions capable of independently finding and targeting hostile units in the vicinity.	到达指定目标约 2.5km 内后，这枚 500kg 滑翔弹抛撒 12 枚 GS25 子弹药，可独立搜索并攻击附近敌方单位。
+User	用户
+Using a combination of inertial guidance and terminal radar homing, the Scythe can engage aerial targets at beyond visual range	结合惯性制导与末端雷达寻的，镰刀可在超视距打击空中目标。
+value	价值
+Vehicle deployment facility. Can defend itself with small arms fire.	车辆部署设施，可以轻武器自卫。
+Vehicle Depot	车辆仓库
+Velocity Pitch Damping	速度俯仰阻尼
+Vertical Factory	垂直工厂
+Vertically launched missile effective against aerial radar returns at a range up to 15km	垂直发射导弹，对空中雷达回波有效射程约 15km。
+VL-49 Tarantula	VL-49XE 噬鸟蛛
+VT-7 Vagrant	VT-7XE 空域流浪者
+Warheads to keep in reserve	预留弹头数量
+While the Type 12 may be a legacy design, it still remains a formidable presence on the battlefield. It offers better protection per unit weight than its contemporaries, owing to its novel monocoque composite hull & turret that give the Type-12 its signature shape. Its armament consists of a 130mm cannon firing hypervelocity SABOT rounds and a turreted 12.7mm machine gun.	12 式虽是旧设计，仍是战场劲旅。单体复合材料车体与炮塔赋予标志外形，单位重量防护优于同代。武器含发射超高速脱壳穿甲弹的 130mm 炮与炮塔 12.7mm 机枪。
+Width	宽度
+Wind Direction	风向
+Wind Speed	风速
+Wind Turbulence	风湍流
+With a liberal application of armour and weapon modules, the latest iterations of the Spearhead are as protected as they are powerful. The combination of 130mm main gun and ATGM launcher allow it to hold its own against larger numbers of enemy armoured units, while the roof mounted 20kw pulse laser can protect the relatively thinner top armour against missiles. Its ever-growing list of capabilities has come with a diminished top speed and a total weight far exceeding its original design specifications.	大量装甲与武器模块使最新矛头既强又硬。130mm 主炮与反坦克导弹使其能以少打多；车顶 20kW 脉冲激光可保护相对薄弱的顶部装甲免受导弹打击。能力清单不断变长，代价是极速下降与远超原设计的重量。
+Wreck HLT	残骸（重型后勤车）
+Wreck MBT	残骸（主战坦克）
+Wrecks Despawn Time	残骸消失时间
+
+# Splash / community / mission editor (absorbed from missed_zh.txt @ 0.0.9.82)
+Join our Community	加入我们的社区
+Early Access Version 0.34	抢先体验版 0.34
+Early Access Version	抢先体验版
+Change Log	更新日志
+Changelog	更新日志
+Development Roadmap	开发路线图
+Merch Store	周边商店
+Control Changes	操作变更
+Did you know?	你知道吗？
+Did you know	你知道吗
+MISSION EDITOR	任务编辑器
+Mission Editor	任务编辑器
+iallemege?	IAllemege?
+IAllemege	IAllemege
+By IAllemege	By IAllemege
+Tutorial 1 - Taxi and Takeoff	教程 1 - 滑行与起飞
+Tutorial 2 - Landing	教程 2 - 着陆
+Tutorial 3 - Targeting and Weapons	教程 3 - 瞄准与武器
+Tutorial 4 - Infrared Countermeasures	教程 4 - 红外对抗
+Tutorial 5 - Radar Countermeasures	教程 5 - 雷达对抗
+01. Convoy Attack	01. 车队奇袭
+Convoy Attack	车队奇袭
+02. Round Up	02. 围歼行动
+Round Up	围歼行动
+03. Point Blank	03. 近距突击
+Point Blank	近距突击
+04. Cruise Missile Interception	04. 巡航导弹拦截
+Cruise Missile Interception	巡航导弹拦截
+05. Furball	05. 空中混战
+Furball	空中混战
+06. Bridge Defense	06. 大桥防御
+Bridge Defense	大桥防御
+07. Blackout	07. 灯火管制
+Blackout	灯火管制
+08. Infiltration	08. 渗透突袭
+Infiltration	渗透突袭
+09. Depot Strike	09. 仓库打击
+Depot Strike	仓库打击
+10. Dustbowl	10. 尘盆
+Dustbowl	尘盆
+11. Expedition	11. 远征
+Expedition	远征
+12. Shifting Tide	12. 潮汐转向
+Shifting Tide	潮汐转向
+13. Reprisal	13. 报复打击
+Reprisal	报复打击
+14. To Sink a Carrier	14. 击沉航母
+To Sink a Carrier	击沉航母
+15. Breaking the Atoll	15. 突袭环礁
+Breaking the Atoll	突袭环礁
+Altercation	冲突
+Breakout	突围
+Carrier Duel	航母对决
+Confrontation	对峙
+Domination	主宰
+Escalation	全面升级
+Terminal Control	终端控制
+Altercation Co-op as BDF	冲突协作（BDF）
+Altercation Co-op as PALA	冲突协作（PALA）
+Confrontation Co-op as BDF	对峙协作（BDF）
+Confrontation Co-op as PALA	对峙协作（PALA）
+Domination Co-op as BDF	主宰协作（BDF）
+Domination Co-op as PALA	主宰协作（PALA）
+Escalation Co-op as PALA	升级协作（PALA）
+Terminal Control Co-op as BDF	终端控制协作（BDF）
+Terminal Control Co-op as PALA	终端控制协作（PALA）
+Mission Briefing	任务简报
+Start Mission	开始任务
+Leave Mission	离开任务
+Primary Objective	主要目标
+Secondary Objective	次要目标
+Mission Successful!	任务成功！
+Mission Complete!	任务完成！
+All Objectives are complete! Leave the area and RTB.	全部目标已完成！撤离并返航。
+Priority targets have been added to your HUD.	优先目标已添加到抬头显示。
+Excellent work! Return safely to base to complete the mission.	出色！安全返航以完成任务。
+The enemy installation has been removed, mission accomplished!	敌方设施已清除，任务完成！
+Enemy aircraft production facilities are destroyed. Mission accomplished.	敌方飞机制造设施已摧毁。任务完成。
+The enemy has capitulated. We are victorious!	敌军已投降。我们胜利了！
+Naval reinforcements are enroute. ETA 10 minutes.	海军增援正在途中。预计 10 分钟。
+Naval reinforcements have arrived.	海军增援已抵达。
+Enemy carrier spotted.	发现敌方航母。
+PALA's carrier is sinking. BDF is victorious!	PALA 航母正在沉没。BDF 胜利！
+BDF's carrier is sinking. PALA is victorious!	BDF 航母正在沉没。PALA 胜利！
+Well done, the threat has been neutralized.	干得好，威胁已被清除。
+Convoy has been spotted. Lets get to work.	发现车队。开始行动。
+Excellent work, every convoy vehicle has been destroyed.	出色，车队车辆已全部摧毁。
+Hint	提示
+Hints	提示
+Tip	提示
+Loading Tip	加载提示
+CI-22XE Super Cricket	CI-22XE 超级蟋蟀
+T/A-30XE Super Compass	T/A-30XE 超罗盘
+VT-7XE Airspace Vagrant	VT-7XE 空域流浪者
+UH-90XE King Cobra	UH-90XE 眼镜王蛇
+SAH-46XE Gulfstream	SAH-46XE 湾流
+NOTA-10XE Super Warthog	NOTA-10XE 超疣猪
+FS-12XE 'Special' Liberator	FS-12XE '特殊'解放者
+FS-20XE Mad Vortex	FS-20XE 狂涡
+VL-49XE Bird-Eating Spider	VL-49XE 噬鸟蛛
+KR-67XE Fallen Angel	KR-67XE 堕天使
+EW-25XE Medusa	EW-25XE 美杜莎
+SFB-81XE Darkreach	SFB-81XE 暗域
+AB-4XE Hummingbird	AB-4XE 蜂鸟
+shot down	击落
+destroyed	摧毁
+demolished	拆除
+intercepted	拦截
+sank	击沉
+crashed	坠毁
+was destroyed	被摧毁
+collapsed	坍塌
+XE版本的性能修改的同时也对名称进行了修改	XE版本的性能修改的同时也对名称进行了修改
