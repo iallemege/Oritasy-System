@@ -950,7 +950,11 @@ namespace Oritasy
         /// <summary>In-game brand (F1 / encyclopedia). Not the BepInEx plugin title.</summary>
         public const string Name = "Oritasy";
         /// <summary>BepInEx plugin list / log source name — not the in-game brand.</summary>
+#if ORITASY_EDITION_D
         public const string PluginName = "RM278";
+#else
+        public const string PluginName = "Oritasy";
+#endif
         /// <summary>BepInEx assembly version — bump every release so stale plugin DLLs lose.</summary>
         public const string Version = "2.9.3";
 
