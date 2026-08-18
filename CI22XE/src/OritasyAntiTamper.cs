@@ -5,9 +5,9 @@ using System.Text;
 namespace Oritasy
 {
     /// <summary>
-    /// Lightweight anti-decompile padding. Harmony / BepInEx public surface stays named.
+    /// IL crosstalk padding for Standard C. Harmony / BepInEx public surface stays named.
     /// Junk types inflate ILSpy/dnSpy trees; runtime never calls into them.
-    /// On-disk packing + dumper gate live in the RM278 stub (Loader/), not here.
+    /// String encryption, packing, and plugin-name cloaking are Special Edition D only.
     /// </summary>
     internal static class OritasyAntiTamper
     {
