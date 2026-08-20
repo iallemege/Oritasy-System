@@ -1,0 +1,29 @@
+# This repo is a BepInEx plugin compiled with .NET Framework csc against
+# Nuclear Option Managed + BepInEx assemblies. There is no .sln / .csproj,
+# so GitHub's default "dotnet restore" workflow cannot build it.
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  verify-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Standard C source layout
+        run: |
+          set -euo pipefail
+          test -f build_c.bat
+          test -f gen_combined_sources.bat
+          test -f tools/write_csc_rsp.ps1
+          test -d CI22XE/src
+          test -d NOWeaponSuite/src
+          test -d Kh85MT/src
+          test -n "$(find CI22XE/src -maxdepth 1 -name '*.cs' | head -n 1)"
+          test -n "$(find NOWeaponSuite/src -maxdepth 1 -name '*.cs' | head -n 1)"
+          test -n "$(find Kh85MT/src -maxdepth 1 -name '*.cs' | head -n 1)"
+          echo "Source layout OK. csc build requires a local Nuclear Option install."
