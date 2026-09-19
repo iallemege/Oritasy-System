@@ -12,6 +12,8 @@ This repository is the **Standard C** source (unpacked bilingual pack). Copy `Or
 
 In-game guide (Chinese): see [GUIDE.md](GUIDE.md).
 
+Full bilingual feature catalog: see [FEATURES.md](FEATURES.md).
+
 ---
 
 ## Features
