@@ -527,6 +527,7 @@ namespace WeXon
 
         private static Type _perfModeType;
         private static System.Reflection.MethodInfo _flightSampleHzCapMethod;
+        private static System.Reflection.PropertyInfo _isLowProp;
         private static bool _perfModeResolved;
 
         private static float CachedFlightSampleHzCap()
@@ -540,6 +541,10 @@ namespace WeXon
                     if (_perfModeType != null)
                     {
                         _flightSampleHzCapMethod = _perfModeType.GetMethod("FlightSampleHzCap",
+                            System.Reflection.BindingFlags.Static
+                            | System.Reflection.BindingFlags.Public
+                            | System.Reflection.BindingFlags.NonPublic);
+                        _isLowProp = _perfModeType.GetProperty("IsLow",
                             System.Reflection.BindingFlags.Static
                             | System.Reflection.BindingFlags.Public
                             | System.Reflection.BindingFlags.NonPublic);
@@ -557,6 +562,24 @@ namespace WeXon
             }
             catch { }
             return 0f;
+        }
+
+        private static bool CachedIsLow()
+        {
+#if ORITASY_COMBINED
+            try { return Oritasy.PerfMode.IsLow; }
+            catch { return false; }
+#else
+            CachedFlightSampleHzCap();
+            if (_isLowProp == null)
+                return false;
+            try
+            {
+                object v = _isLowProp.GetValue(null, null);
+                return v is bool && (bool)v;
+            }
+            catch { return false; }
+#endif
         }
 
         private static void MaybeAutoOpenScore(Aircraft ac)
@@ -914,24 +937,12 @@ namespace WeXon
             float flushEvery = 1.25f;
             int softCap = 32000;
             int hardCap = 64000;
-            try
+            if (CachedIsLow())
             {
-                Type perf = Type.GetType("Oritasy.PerfMode");
-                if (perf != null)
-                {
-                    System.Reflection.PropertyInfo isLow = perf.GetProperty("IsLow",
-                        System.Reflection.BindingFlags.Static
-                        | System.Reflection.BindingFlags.Public
-                        | System.Reflection.BindingFlags.NonPublic);
-                    if (isLow != null && isLow.GetValue(null, null) is bool && (bool)isLow.GetValue(null, null))
-                    {
-                        flushEvery = 2.5f;
-                        softCap = 64000;
-                        hardCap = 120000;
-                    }
-                }
+                flushEvery = 2.5f;
+                softCap = 64000;
+                hardCap = 120000;
             }
-            catch { }
             if (now < _nextFlushAt && now < float.MaxValue * 0.5f && _buf.Length < softCap)
                 return;
             _nextFlushAt = now + flushEvery;

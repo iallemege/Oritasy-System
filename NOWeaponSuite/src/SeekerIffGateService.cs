@@ -105,9 +105,10 @@ namespace WeXon
         }
 
         /// <summary>
-        /// Guided missiles: skip seeker SlowChecks / MissedTarget / LosingGround / low-speed
-        /// airburst for the whole flight. Collision and proximity hits still detonate.
-        /// Gun shells and unguided rockets keep vanilla SD.
+        /// Guided missiles: skip false geometry SD (MissedTarget / LosingGround) and
+        /// SlowChecks airburst unless the shot is actually energy-dead. Collision,
+        /// proximity, and TimeFuse still detonate. Gun shells / unguided rockets
+        /// keep vanilla SD.
         /// </summary>
         internal static bool ShouldSuppressSeekerSelfDestruct(
             bool isGunShell,
@@ -116,6 +117,46 @@ namespace WeXon
             if (isGunShell || isUnguidedRocket)
                 return false;
             return true;
+        }
+
+        /// <summary>
+        /// Allow SlowChecks to Detonate only for true duds (motor off, very slow).
+        /// Do not use vanilla selfDestructAtSpeed (~270 m/s) — that booms coasting AAMs.
+        /// VLS pitch-over and ballistic apogee match TickLowSpeedSelfDestruct.
+        /// </summary>
+        internal static bool AllowSlowChecksEnergyDetonate(
+            bool isGunShell,
+            bool isUnguidedRocket,
+            bool engineOn,
+            float remainingBurnSec,
+            float ageSec,
+            float minAgeSec,
+            float speedMps,
+            float dudSpeedMps,
+            bool vlsSoftLaunch,
+            float vlsProtectSec,
+            bool isBallistic,
+            float ballisticMinAgeSec,
+            float velY)
+        {
+            if (isGunShell || isUnguidedRocket)
+                return true;
+            if (engineOn)
+                return false;
+            if (remainingBurnSec > 0.15f)
+                return false;
+            float vlsWin = vlsProtectSec > 0.5f ? vlsProtectSec : 12f;
+            if (vlsSoftLaunch && ageSec < vlsWin)
+                return false;
+            float ageNeed = minAgeSec < 0f ? 0f : minAgeSec;
+            if (isBallistic && ballisticMinAgeSec > ageNeed)
+                ageNeed = ballisticMinAgeSec;
+            if (ageSec < ageNeed)
+                return false;
+            if (isBallistic && velY > -8f)
+                return false;
+            float thresh = dudSpeedMps < 1f ? 1f : dudSpeedMps;
+            return speedMps < thresh;
         }
 
         internal static int ApplyWarheadQuotaSubtract(int currentWarheads, int ialExemptAmmoSum)

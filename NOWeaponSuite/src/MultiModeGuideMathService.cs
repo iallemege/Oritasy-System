@@ -111,6 +111,123 @@ namespace WeXon
                 maxDeg *= 0.55f;
             return Mathf.Clamp(maxDeg, 6f, 52f);
         }
+        internal enum HobsPhase { None, Snap, Recover, Track }
+
+        /// <summary>
+        /// AAM rear / high-offbore lock: Snap = in-place turn, Recover = bleed G and hold speed, Track = normal.
+        /// </summary>
+        internal static HobsPhase ResolveHobsPhase(bool aamHobs, float aspectDeg, float speedMps, float minGuideSpeedMps)
+        {
+            if (!aamHobs)
+                return HobsPhase.None;
+            if (aspectDeg >= 70f)
+                return HobsPhase.Snap;
+            if (aspectDeg >= 32f || speedMps < minGuideSpeedMps * 1.15f)
+                return HobsPhase.Recover;
+            return HobsPhase.Track;
+        }
+
+        /// <summary>Snap allows nearly full sphere command; Recover uses energy-aware cap; Track uses normal.</summary>
+        internal static float MaxOffBoresightForHobs(float speedMps, bool softRetarget, float aspectDeg, HobsPhase phase)
+        {
+            if (phase == HobsPhase.Snap)
+            {
+                // In-place turn: command hard, but still leave a tiny slew floor so fins can follow.
+                float snap = speedMps < 60f ? 95f : (speedMps < 120f ? 120f : 160f);
+                return Mathf.Clamp(snap, 90f, 170f);
+            }
+            if (phase == HobsPhase.Recover)
+            {
+                float baseDeg = MaxOffBoresightDeg(speedMps, true, aspectDeg);
+                return Mathf.Clamp(baseDeg * 0.85f, 8f, 28f);
+            }
+            return MaxOffBoresightDeg(speedMps, softRetarget, aspectDeg);
+        }
+
+        internal static float CapGLimitForHobs(
+            float currentG,
+            float originalG,
+            float speedMps,
+            float minGuideSpeedMps,
+            float aspectDeg,
+            HobsPhase phase)
+        {
+            if (phase == HobsPhase.None)
+                return CapGLimitForEnergy(currentG, originalG, speedMps, minGuideSpeedMps, false, aspectDeg);
+
+            float src = currentG > 0.01f ? currentG : (originalG > 0.01f ? originalG : 30f);
+            if (phase == HobsPhase.Snap)
+            {
+                // High-G snap for rear lock; still floor so low-speed doesn't tumble forever.
+                float want = speedMps < 70f ? 22f : (speedMps < 140f ? 38f : 52f);
+                return Mathf.Max(src, want);
+            }
+            if (phase == HobsPhase.Recover)
+            {
+                // Bleed G hard so energy rebuilds after the yank.
+                float cap = speedMps < minGuideSpeedMps ? 8f
+                    : (speedMps < minGuideSpeedMps * 1.4f ? 12f : 18f);
+                return Mathf.Min(src, cap);
+            }
+            return CapGLimitForEnergy(currentG, originalG, speedMps, minGuideSpeedMps, false, aspectDeg);
+        }
+
+        internal static Vector3 ComputeHobsAimPoint(
+            Vector3 missilePos,
+            Vector3 forward,
+            float speed,
+            Vector3 leadPos,
+            float minGuideSpeedMps,
+            HobsPhase phase,
+            Vector3 lastCmdDir,
+            float dt)
+        {
+            Vector3 desired = leadPos - missilePos;
+            if (desired.sqrMagnitude < 0.01f)
+                desired = forward;
+            desired.Normalize();
+
+            if (phase == HobsPhase.Snap)
+            {
+                // Near-direct chase with soft slew so the body can follow without instant flip.
+                float ang = Vector3.Angle(forward, desired);
+                float maxDeg = MaxOffBoresightForHobs(speed, false, ang, HobsPhase.Snap);
+                Vector3 dir = desired;
+                if (ang > maxDeg)
+                    dir = Vector3.RotateTowards(forward, desired, maxDeg * Mathf.Deg2Rad, 0f);
+                dir.Normalize();
+                if (lastCmdDir.sqrMagnitude > 0.01f && dt > 0.001f)
+                {
+                    float maxDps = speed < 80f ? 70f : Mathf.Lerp(90f, 180f, Mathf.Clamp01((speed - 80f) / 250f));
+                    float maxStep = maxDps * Mathf.Clamp(dt, 0.016f, 0.25f);
+                    float slewAng = Vector3.Angle(lastCmdDir, dir);
+                    if (slewAng > maxStep)
+                        dir = Vector3.RotateTowards(lastCmdDir, dir, maxStep * Mathf.Deg2Rad, 0f);
+                }
+                float look = Mathf.Clamp(speed * 1.6f, 250f, 1800f);
+                Vector3 aim = missilePos + dir * look;
+                // Mild loft only while still nearly reverse — helps keep dynamic pressure.
+                if (ang > 110f && aim.y < missilePos.y + 40f)
+                    aim.y = missilePos.y + 55f;
+                return aim;
+            }
+
+            if (phase == HobsPhase.Recover)
+            {
+                // Energy rebuild: gentle turns + prefer not diving while slow.
+                return ComputeAimPoint(
+                    missilePos, forward, speed, leadPos,
+                    false, minGuideSpeedMps, true, lastCmdDir, dt);
+            }
+
+            // Track: normal sticky (direct when energetic enough).
+            bool direct = speed >= minGuideSpeedMps * 1.1f
+                && Vector3.Angle(forward, desired) <= 28f;
+            return ComputeAimPoint(
+                missilePos, forward, speed, leadPos,
+                direct, minGuideSpeedMps, false, lastCmdDir, dt);
+        }
+
 
         /// <summary>
         /// Direct chase only when already nearly aligned and energetic. Player/sticky re-lock

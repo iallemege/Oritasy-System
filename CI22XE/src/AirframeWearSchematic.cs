@@ -18,14 +18,14 @@ namespace Oritasy
             return Color.Lerp(new Color(0.45f, 0.06f, 0.06f), new Color(0.95f, 0.35f, 0.12f), h / 0.25f);
         }
 
-        internal static bool TryBankBox(int bank, int banks, AirframeWearService.Family family,
+        internal static bool TryBankBox(int bank, int banks, WearView.Family family,
             out float x, out float y, out float w, out float h)
         {
             BankBox(banks, bank, family, out x, out y, out w, out h);
             return true;
         }
 
-        internal static bool TryBankHeader(int bank, int banks, AirframeWearService.Family family,
+        internal static bool TryBankHeader(int bank, int banks, WearView.Family family,
             out float x, out float y, out float w, out float h)
         {
             float ox, oy, sx, sy;
@@ -37,8 +37,8 @@ namespace Oritasy
             return true;
         }
 
-        internal static bool TryCell(AirframeWearService.Part p,
-            AirframeWearService.Family family, int banks,
+        internal static bool TryCell(WearView.Part p,
+            WearView.Family family, int banks,
             out float x, out float y, out float w, out float h)
         {
             x = 0f;
@@ -71,7 +71,7 @@ namespace Oritasy
             return id.Substring(d + 1);
         }
 
-        private static void BankBox(int banks, int bank, AirframeWearService.Family family,
+        private static void BankBox(int banks, int bank, WearView.Family family,
             out float ox, out float oy, out float sx, out float sy)
         {
             if (banks <= 1)
@@ -111,7 +111,7 @@ namespace Oritasy
             float gap = 0.02f;
             float x0 = 0.02f;
             float span = 0.96f;
-            if (family == AirframeWearService.Family.Stovl)
+            if (family == WearView.Family.Stovl)
             {
                 x0 = 0.36f;
                 span = 0.62f;
@@ -122,24 +122,24 @@ namespace Oritasy
             sy = 0.34f;
         }
 
-        private static bool LocalCell(string key, AirframeWearService.Family family, bool prop,
+        private static bool LocalCell(string key, WearView.Family family, bool prop,
             out float x, out float y, out float w, out float h)
         {
             x = 0.4f;
             y = 0.4f;
             w = 0.18f;
             h = 0.18f;
-            if (family == AirframeWearService.Family.Prop || prop)
+            if (family == WearView.Family.Prop || prop)
                 return PropLocal(key, out x, out y, out w, out h);
-            if (family == AirframeWearService.Family.Helo)
+            if (family == WearView.Family.Helo)
                 return HeloLocal(key, out x, out y, out w, out h);
-            if (family == AirframeWearService.Family.Tilt)
+            if (family == WearView.Family.Tilt)
                 return TiltLocal(key, out x, out y, out w, out h);
-            if (family == AirframeWearService.Family.Vtol)
+            if (family == WearView.Family.Vtol)
                 return VtolLocal(key, out x, out y, out w, out h);
-            if (family == AirframeWearService.Family.Stovl)
+            if (family == WearView.Family.Stovl)
                 return StovlLocal(key, out x, out y, out w, out h);
-            return JetLocal(key, family == AirframeWearService.Family.JetAb, out x, out y, out w, out h);
+            return JetLocal(key, family == WearView.Family.JetAb, out x, out y, out w, out h);
         }
 
         private static bool JetLocal(string key, bool ab, out float x, out float y, out float w, out float h)
@@ -269,24 +269,24 @@ namespace Oritasy
             return Cell(0.55f, 0.30f, 0.16f, 0.16f, out x, out y, out w, out h);
         }
 
-        private static bool SharedCell(string key, AirframeWearService.Family family, int banks,
+        private static bool SharedCell(string key, WearView.Family family, int banks,
             out float x, out float y, out float w, out float h)
         {
             if (key == "apu")
             {
-                if (family == AirframeWearService.Family.Helo)
+                if (family == WearView.Family.Helo)
                     return Cell(0.38f, 0.90f, 0.24f, 0.08f, out x, out y, out w, out h);
-                if (family == AirframeWearService.Family.Tilt)
+                if (family == WearView.Family.Tilt)
                     return Cell(0.02f, 0.90f, 0.28f, 0.08f, out x, out y, out w, out h);
-                if (family == AirframeWearService.Family.Stovl)
+                if (family == WearView.Family.Stovl)
                     return Cell(0.04f, 0.86f, 0.30f, 0.12f, out x, out y, out w, out h);
-                if (family == AirframeWearService.Family.Vtol)
+                if (family == WearView.Family.Vtol)
                     return Cell(0.38f, 0.90f, 0.24f, 0.08f, out x, out y, out w, out h);
                 if (banks >= 4)
                     return Cell(0.38f, 0.42f, 0.24f, 0.12f, out x, out y, out w, out h);
                 return Cell(0.38f, 0.90f, 0.24f, 0.08f, out x, out y, out w, out h);
             }
-            if (family == AirframeWearService.Family.Helo)
+            if (family == WearView.Family.Helo)
             {
                 if (key == "mast")
                     return Cell(0.02f, 0.41f, 0.22f, 0.14f, out x, out y, out w, out h);
@@ -297,21 +297,21 @@ namespace Oritasy
                 if (key == "tgb")
                     return Cell(0.76f, 0.41f, 0.22f, 0.14f, out x, out y, out w, out h);
             }
-            if (family == AirframeWearService.Family.Vtol)
+            if (family == WearView.Family.Vtol)
             {
                 if (key == "mix")
                     return Cell(0.38f, 0.42f, 0.24f, 0.14f, out x, out y, out w, out h);
                 if (key == "mounts")
                     return Cell(0.32f, 0.88f, 0.36f, 0.08f, out x, out y, out w, out h);
             }
-            if (family == AirframeWearService.Family.Tilt)
+            if (family == WearView.Family.Tilt)
             {
                 if (key == "combine")
                     return Cell(0.32f, 0.46f, 0.36f, 0.08f, out x, out y, out w, out h);
                 if (key == "mounts")
                     return Cell(0.32f, 0.90f, 0.36f, 0.08f, out x, out y, out w, out h);
             }
-            if (family == AirframeWearService.Family.Stovl)
+            if (family == WearView.Family.Stovl)
             {
                 if (key == "doors")
                     return Cell(0.04f, 0.08f, 0.30f, 0.14f, out x, out y, out w, out h);
@@ -333,31 +333,31 @@ namespace Oritasy
             return true;
         }
 
-        internal static void DrawSilhouette(Rect area, AirframeWearService.Family family, int banks)
+        internal static void DrawSilhouette(Rect area, WearView.Family family, int banks)
         {
             Color prev = GUI.color;
             GUI.color = new Color(0.16f, 0.20f, 0.24f, 0.55f);
-            if (family == AirframeWearService.Family.Helo)
+            if (family == WearView.Family.Helo)
             {
                 Fill(area, 0.28f, 0.28f, 0.44f, 0.42f);
                 Fill(area, 0.62f, 0.44f, 0.32f, 0.10f);
             }
-            else if (family == AirframeWearService.Family.Vtol
-                || family == AirframeWearService.Family.Tilt)
+            else if (family == WearView.Family.Vtol
+                || family == WearView.Family.Tilt)
             {
                 Fill(area, 0.30f, 0.30f, 0.40f, 0.40f);
             }
-            else if (family == AirframeWearService.Family.Prop)
+            else if (family == WearView.Family.Prop)
             {
                 Fill(area, 0.34f, 0.22f, 0.62f, 0.52f);
                 Fill(area, 0.08f, 0.18f, 0.20f, 0.54f);
             }
-            else if (family == AirframeWearService.Family.Stovl)
+            else if (family == WearView.Family.Stovl)
             {
                 Fill(area, 0.36f, 0.28f, 0.58f, 0.32f);
                 Fill(area, 0.06f, 0.24f, 0.26f, 0.40f);
             }
-            else if (family == AirframeWearService.Family.Bomber || banks >= 4)
+            else if (family == WearView.Family.Bomber || banks >= 4)
             {
                 Fill(area, 0.38f, 0.36f, 0.24f, 0.28f);
                 Fill(area, 0.04f, 0.42f, 0.92f, 0.10f);

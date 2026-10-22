@@ -238,7 +238,7 @@ namespace Oritasy
 
         private static void OpenMenu()
         {
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
                 return;
             if (AircraftManeuverGui.IsOpen)
                 AircraftManeuverGui.Close();
@@ -246,8 +246,8 @@ namespace Oritasy
                 PlayerAutopilot.CloseMenuFromOutside();
             if (AerialResupply.MenuOpen)
                 AerialResupply.CloseMenuFromOutside();
-            if (WarThunderRwrHud.LayoutMenuOpen)
-                WarThunderRwrHud.CloseLayoutMenuFromOutside();
+            if (HudPackState.LayoutMenuOpen)
+                HudPackState.CloseRwr();
             if (BeginnerAssist.MenuOpen)
                 BeginnerAssist.CloseMenuFromOutside();
             if (IlsSettingsMenu.MenuOpen)
@@ -256,7 +256,7 @@ namespace Oritasy
                 PrivateMessageMenu.CloseMenuFromOutside();
             if (HostFundMenu.MenuOpen)
                 HostFundMenu.CloseMenuFromOutside();
-            AirframeWearGui.CloseFromOutside();
+            HudPackState.CloseWear();
             PlayerAutopilot.CloseWeXonSupportMenu();
             ShuffleSlots();
             // Fresh open: hide previous reveal until a new pick (unless no pending — show last).

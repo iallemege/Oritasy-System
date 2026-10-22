@@ -20,7 +20,11 @@ namespace Oritasy
         /// <summary>True when stick/throttle should ignore the player (AP / resupply / beginner takeoff).</summary>
         internal static bool BlocksPlayerControls
         {
-            get { return _engaged || AerialResupply.IsActive || BeginnerAssist.BlocksControls; }
+            get
+            {
+                return _engaged || AerialResupply.IsActive || BeginnerAssist.BlocksControls
+                    || JammerQte.BlocksControls || DirjamBridge.BlocksControls;
+            }
         }
 
         private enum ApMode
@@ -287,7 +291,7 @@ namespace Oritasy
                 return;
             }
 
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
             {
                 if (_engaged)
                     Disengage(false);
@@ -350,7 +354,7 @@ namespace Oritasy
         {
             if (ac == null || ac.autopilot == null)
                 return;
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
                 return;
             // Aerial resupply owns level-hold while active.
             if (AerialResupply.IsActive)
@@ -361,6 +365,16 @@ namespace Oritasy
             // Beginner auto-takeoff sequence (before full AP engage).
             if (BeginnerAssist.ApplyFlight(ac))
                 return;
+            if (JammerQte.IsActive && !_engaged)
+            {
+                JammerQte.ApplyLevelFlight(ac);
+                return;
+            }
+            if (DirjamBridge.IsActive && !_engaged)
+            {
+                DirjamBridge.ApplyLevelFlight(ac);
+                return;
+            }
             if (!_engaged)
                 return;
             try
@@ -394,7 +408,9 @@ namespace Oritasy
             Aircraft ac = ResolveLocal();
             if (ac == null)
                 return;
-            if (MissileCameraHud.ManualActive)
+            if (!TipChromeAllowed())
+                return;
+            if (HudPackState.ManualActive)
                 return;
 
             EnsureStyles();
@@ -437,12 +453,12 @@ namespace Oritasy
 
         private static void OpenMenu()
         {
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
                 return;
             if (AerialResupply.MenuOpen)
                 AerialResupply.CloseMenuFromOutside();
-            if (WarThunderRwrHud.LayoutMenuOpen)
-                WarThunderRwrHud.CloseLayoutMenuFromOutside();
+            if (HudPackState.LayoutMenuOpen)
+                HudPackState.CloseRwr();
             if (BeginnerAssist.MenuOpen)
                 BeginnerAssist.CloseMenuFromOutside();
             if (IlsSettingsMenu.MenuOpen)
@@ -453,7 +469,7 @@ namespace Oritasy
                 KillChoiceMenu.CloseMenuFromOutside();
             if (HostFundMenu.MenuOpen)
                 HostFundMenu.CloseMenuFromOutside();
-            AirframeWearGui.CloseFromOutside();
+            HudPackState.CloseWear();
             CloseWeXonSupportMenu();
             _menuOpen = true;
             CaptureCursor();
@@ -1061,6 +1077,29 @@ namespace Oritasy
             }
         }
 
+        
+        /// <summary>Hide F-key tip chips on title / loading.</summary>
+        private static bool TipChromeAllowed()
+        {
+            try
+            {
+                var gm = typeof(GameManager);
+                var p = gm.GetProperty("InMission", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                if (p != null)
+                {
+                    object v = p.GetValue(null, null);
+                    if (v is bool && !(bool)v) return false;
+                }
+                var f = gm.GetField("InMission", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                if (f != null)
+                {
+                    object v = f.GetValue(null);
+                    if (v is bool && !(bool)v) return false;
+                }
+            }
+            catch { }
+            return true;
+        }
         private static Aircraft ResolveLocal()
         {
             try

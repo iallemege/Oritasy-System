@@ -77,10 +77,8 @@ namespace Oritasy
                 && (EngineStartService.IsStarting || !ac.Ignition))
             {
                 BeginnerAssist.Flash(EngineStartService.ApuActive
-                    ? UiLang.T(
-                        "Please start the engine, thrust is from the APU",
-                        "请启动引擎，现在推力由APU提供")
-                    : UiLang.T("Please start the APU", "请启动APU"));
+                    ? EngineStartService.StartEnginePrompt()
+                    : EngineStartService.StartApuPrompt());
                 return;
             }
             if (EngineStartService.HoldsMovement)

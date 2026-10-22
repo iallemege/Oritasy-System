@@ -1,0 +1,16 @@
+Oritasy infantry viewmodels
+===========================
+
+rifle.obj
+  Source: OpenGameArt "Low Poly Weapon Pack" (M16.obj)
+  Author: byzmod3d
+  License: CC0 1.0 Public Domain
+  https://opengameart.org/content/low-poly-weapon-pack
+
+ak47.obj / rpg7.obj
+  Same pack, CC0.
+
+pistol.obj / shotgun.obj / sniper.obj / at4.obj / rbs70.obj / arms.obj
+  Original low-poly meshes built in Blender for this mod.
+  Silhouettes inspired by public photos. Not official CAD and not ripped
+  commercial 3D models.

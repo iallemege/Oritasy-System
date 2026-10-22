@@ -40,6 +40,7 @@ namespace Oritasy
             EncyclopediaBrandService.EnsureBrandDescription(
                 ref desc, Plugin.BuildingBrand, Plugin.BuildingBrand + " modified structure.");
             def.description = desc;
+            BuildingResistStripService.StripDefinition(def);
 
             EncyclopediaBrandService.UpdateLookup(def);
 

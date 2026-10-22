@@ -14,7 +14,7 @@ namespace Oritasy
     {
         /// <summary>
         /// Aircraft = Full baseline (aircraft factors).
-        /// Building = half resist when BuildingHalfResist (2× damage).
+        /// Building = no nuke resist (vanilla shock/blast).
         /// Ship = triple resist when NavalTripleResist (1/3 damage); else half (2×).
         /// Vehicle = half resist (2× damage).
         /// </summary>
@@ -88,7 +88,7 @@ namespace Oritasy
             if (u is Aircraft)
                 return Tier.Aircraft;
             if (u is Building)
-                return Tier.Building;
+                return Tier.None;
             if (u is Ship)
                 return Tier.Ship;
             if (u is GroundVehicle)
@@ -158,6 +158,22 @@ namespace Oritasy
 
         internal static void ScaleShock(Unit u, ref float a, ref float b)
         {
+            if (u == null)
+                return;
+#if ORITASY_COMBINED
+            try
+            {
+                if (WeXon.GFactorRutherfordField.IsInsideField(u))
+                {
+                    a = 0f;
+                    b = 0f;
+                    return;
+                }
+                if (WeXon.AmmoDump50TWeapon.IgnoresResist(u))
+                    return;
+            }
+            catch { }
+#endif
             Tier tier = GetTier(u);
             if (tier == Tier.None)
                 return;
@@ -173,6 +189,21 @@ namespace Oritasy
 
         internal static void ScaleBlastDamage(Unit u, ref float blastDamage)
         {
+            if (u == null)
+                return;
+#if ORITASY_COMBINED
+            try
+            {
+                if (WeXon.GFactorRutherfordField.IsInsideField(u))
+                {
+                    blastDamage = 0f;
+                    return;
+                }
+                if (WeXon.AmmoDump50TWeapon.IgnoresResist(u))
+                    return;
+            }
+            catch { }
+#endif
             Tier tier = GetTier(u);
             if (tier == Tier.None)
                 return;
@@ -188,6 +219,22 @@ namespace Oritasy
 
         internal static void ScaleShockwaveHit(Unit u, ref float overpressure, ref float blastYield)
         {
+            if (u == null)
+                return;
+#if ORITASY_COMBINED
+            try
+            {
+                if (WeXon.GFactorRutherfordField.IsInsideField(u))
+                {
+                    overpressure = 0f;
+                    blastYield = 0f;
+                    return;
+                }
+                if (WeXon.AmmoDump50TWeapon.IgnoresResist(u))
+                    return;
+            }
+            catch { }
+#endif
             Tier tier = GetTier(u);
             if (tier == Tier.None)
                 return;

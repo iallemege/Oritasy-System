@@ -26,6 +26,7 @@ namespace Oritasy
 
         internal static void RefreshMountCache()
         {
+            KeAmmoCloneService.Ensure();
             AllMountCache.Clear();
             AllMountSet.Clear();
             WeaponMount[] all = Resources.FindObjectsOfTypeAll<WeaponMount>();

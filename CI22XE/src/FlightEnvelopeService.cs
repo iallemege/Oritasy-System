@@ -1,4 +1,5 @@
 using System;
+using BepInEx.Configuration;
 using System.Reflection;
 using UnityEngine;
 
@@ -183,6 +184,10 @@ namespace Oritasy
         {
             if (profile == null)
                 return;
+
+            // Polluted COIN cfg (G=20/Vmax=356) locked speed under sustained pull.
+            if (!string.IsNullOrEmpty(key) && (AircraftIdentity.IsCi22(key) || key.Equals("COIN", System.StringComparison.OrdinalIgnoreCase)))
+                ForceCoinEnvelope214(profile);
             profile.DefaultAircraftG = defG;
             profile.DefaultPilotG = defPilotG;
             profile.DefaultThrustMul = defThrust;
@@ -198,6 +203,8 @@ namespace Oritasy
                         profile.ThrustMul.Value = Mathf.Max(t, 8f);
                     else if (AircraftIdentity.IsAb4(key) && t < 5.99f)
                         profile.ThrustMul.Value = Mathf.Max(t, 6f);
+                    else if (AircraftIdentity.IsVl49(key) && t < 6.49f)
+                        profile.ThrustMul.Value = Mathf.Max(t, 6.5f);
                     else if (t + 0.05f < defThrust)
                         profile.ThrustMul.Value = defThrust;
                 }
@@ -236,11 +243,15 @@ namespace Oritasy
             return filter;
         }
 
+        private static readonly System.Collections.Generic.HashSet<int> ScaledPitchFilterIds = new System.Collections.Generic.HashSet<int>();
+
         internal static void EnsurePitchBaseline(Aircraft aircraft, ManeuverProfile profile)
         {
             if (profile == null || profile.BaselinePitch > 0.01f)
                 return;
             ControlsFilter filter = GetControlsFilter(aircraft);
+            if (filter != null && ScaledPitchFilterIds.Contains(filter.GetInstanceID()))
+                return;
             if (filter == null || EngineReflection.FlyByWire == null || EngineReflection.FbwMaxPitch == null)
                 return;
             try
@@ -249,8 +260,14 @@ namespace Oritasy
                 if (fbw == null)
                     return;
                 float cur = (float)EngineReflection.FbwMaxPitch.GetValue(fbw);
-                if (cur > 0.01f)
-                    profile.BaselinePitch = cur;
+                if (cur <= 0.01f)
+                    return;
+                // If PitchMul already baked into live FBW, undo before storing baseline
+                // (otherwise Baseline * PitchMul double-scales → stick PIO / pull shake).
+                float mul = profile.PitchMul != null ? Mathf.Max(0.05f, profile.PitchMul.Value) : 1f;
+                if (mul > 1.05f && cur > 0.8f)
+                    cur = cur / mul;
+                profile.BaselinePitch = cur;
             }
             catch { }
         }
@@ -286,21 +303,44 @@ namespace Oritasy
             catch { }
         }
 
+
+        private static void ForceCoinEnvelope214(ManeuverProfile profile)
+        {
+            if (profile == null)
+                return;
+            try
+            {
+                // Only assign when different — ConfigEntry writes dirty files and hitch.
+                SetCfg(profile.AircraftG, 7f);
+                SetCfg(profile.PilotG, 10f);
+                SetCfg(profile.PilotStrength, 1f);
+                SetCfg(profile.MaxSpeed, 175f);
+                SetCfg(profile.CornerSpeed, 90f);
+                SetCfg(profile.PitchMul, 1f);
+                SetCfg(profile.ApproachSpeed, 55f);
+                SetCfg(profile.LandingSpeed, 45f);
+                SetCfg(profile.TakeoffSpeed, 55f);
+                profile.DefaultAircraftG = 7f;
+                profile.DefaultPilotG = 10f;
+                profile.DefaultPitchMul = 1f;
+                profile.DefaultMaxSpeed = 175f;
+                profile.DefaultCornerSpeed = 90f;
+            }
+            catch { }
+        }
+
+        private static void SetCfg(ConfigEntry<float> entry, float v)
+        {
+            if (entry == null)
+                return;
+            if (UnityEngine.Mathf.Abs(entry.Value - v) < 0.0001f)
+                return;
+            entry.Value = v;
+        }
         internal static void ApplyLimitsToAllXe()
         {
             if (Plugin.LiveXeAircraft.Count == 0)
-            {
-                Aircraft[] all = Resources.FindObjectsOfTypeAll<Aircraft>();
-                for (int i = 0; i < all.Length; i++)
-                {
-                    Aircraft ac = all[i];
-                    if (ac == null || !Plugin.IsRuntimeInstance(ac) || !AircraftIdentity.IsXeAircraft(ac))
-                        continue;
-                    AircraftPowerService.RegisterLiveXe(ac);
-                    ApplyLimits(ac);
-                }
                 return;
-            }
 
             for (int i = Plugin.LiveXeAircraft.Count - 1; i >= 0; i--)
             {
@@ -319,7 +359,18 @@ namespace Oritasy
             if (aircraft == null || !AircraftIdentity.IsXeAircraft(aircraft))
                 return;
 
+            // Bind before profile lookup so GetKey sees FS-12XE / CI-22XE codes.
+            AircraftDefinition bound = XeFleetCloneService.BindAircraftToClone(aircraft);
+
             ManeuverProfile profile = GetOrCreateProfile(aircraft);
+            // 263C: keep CI-22 stick envelope pinned (polluted PitchMul/G causes pull shake).
+            try
+            {
+                string pk = AircraftIdentity.GetKey(aircraft);
+                if (AircraftIdentity.IsCi22(pk) || AircraftIdentity.IsCoinAircraft(aircraft))
+                    ForceCoinEnvelope214(profile);
+            }
+            catch { }
             EnsureControlBaselines(aircraft, profile);
             if (profile.BaselinePitch <= 0.01f || profile.BaselineRoll <= 0.01f)
                 EnsureControlBaselines(aircraft, profile);
@@ -341,8 +392,12 @@ namespace Oritasy
                 ? profile.BaselineAlpha * profile.AlphaMul.Value
                 : 0f;
 
-            AircraftDefinition def = aircraft.definition as AircraftDefinition;
-            if (def != null && def.aircraftParameters != null)
+            // Prefer the clone returned by Bind — aircraft.definition assign can be ignored.
+            AircraftDefinition def = bound;
+            if (def == null || !XeFleetCloneService.IsClone(def))
+                def = aircraft.definition as AircraftDefinition;
+            if (def != null && XeFleetCloneService.CanMutateDefinitionParams(def)
+                && def.aircraftParameters != null)
             {
                 AircraftParameters ap = def.aircraftParameters;
                 ap.aircraftGLimit = gAir;
@@ -354,7 +409,7 @@ namespace Oritasy
                 ap.turningRadius = turnRadius;
             }
 
-            if (def != null && def.aircraftInfo != null)
+            if (def != null && XeFleetCloneService.CanMutateDefinitionParams(def) && def.aircraftInfo != null)
                 def.aircraftInfo.maxSpeed = maxSpd;
 
             ControlsFilter filter = GetControlsFilter(aircraft);
@@ -364,22 +419,43 @@ namespace Oritasy
                 {
                     try
                     {
-                        AircraftParameters p = EngineReflection.CfParams.GetValue(filter) as AircraftParameters;
-                        if (p != null)
+                        AircraftParameters target = null;
+                        if (def != null && XeFleetCloneService.IsClone(def))
+                            target = def.aircraftParameters;
+                        AircraftParameters cur = EngineReflection.CfParams.GetValue(filter) as AircraftParameters;
+                        if (target == null && XeFleetCloneService.IsCloneParams(cur))
+                            target = cur;
+                        if (target != null)
                         {
-                            p.aircraftGLimit = gAir;
-                            p.maxSpeed = maxSpd;
-                            p.cornerSpeed = corner;
-                            p.approachSpeed = approach;
-                            p.landingSpeed = landing;
-                            p.takeoffSpeed = takeoff;
-                            p.turningRadius = turnRadius;
+                            if (!ReferenceEquals(cur, target))
+                                EngineReflection.CfParams.SetValue(filter, target);
+                            target.aircraftGLimit = gAir;
+                            target.maxSpeed = maxSpd;
+                            target.cornerSpeed = corner;
+                            target.approachSpeed = approach;
+                            target.landingSpeed = landing;
+                            target.takeoffSpeed = takeoff;
+                            target.turningRadius = turnRadius;
+                        }
+                        else if (cur != null)
+                        {
+                            // Last resort (214C feel): write live CfParams so stick/G are not desynced.
+                            // Prefer clone path above; this only runs if clone bind failed.
+                            cur.aircraftGLimit = gAir;
+                            cur.maxSpeed = maxSpd;
+                            cur.cornerSpeed = corner;
+                            cur.approachSpeed = approach;
+                            cur.landingSpeed = landing;
+                            cur.takeoffSpeed = takeoff;
+                            cur.turningRadius = turnRadius;
                         }
                     }
                     catch { }
                 }
 
-                if (EngineReflection.FlyByWire != null && EngineReflection.FbwGLimit != null)
+                // Helo SAS is HeloFlyByWire, not ControlsFilter.flyByWire.
+                if (!(filter is HeloControlsFilter)
+                    && EngineReflection.FlyByWire != null && EngineReflection.FbwGLimit != null)
                 {
                     try
                     {
@@ -396,7 +472,11 @@ namespace Oritasy
                             if (EngineReflection.FbwTakeoff != null)
                                 EngineReflection.FbwTakeoff.SetValue(fbw, takeoff);
                             if (pitch > 0.01f && EngineReflection.FbwMaxPitch != null)
+                            {
                                 EngineReflection.FbwMaxPitch.SetValue(fbw, pitch);
+                                if (filter != null)
+                                    ScaledPitchFilterIds.Add(filter.GetInstanceID());
+                            }
                             if (roll > 0.01f && EngineReflection.FbwMaxRollVel != null)
                                 EngineReflection.FbwMaxRollVel.SetValue(fbw, roll);
                             if (alpha > 0.01f && EngineReflection.FbwAlpha != null)
@@ -457,7 +537,8 @@ namespace Oritasy
             try
             {
                 AircraftDefinition def = aircraft.definition as AircraftDefinition;
-                if (def != null && def.aircraftParameters != null)
+                if (def != null && XeFleetCloneService.CanMutateDefinitionParams(def)
+                    && def.aircraftParameters != null)
                     def.aircraftParameters.aircraftGLimit = gLimit;
             }
             catch { }
@@ -475,6 +556,8 @@ namespace Oritasy
                 }
                 catch { }
             }
+            if (filter is HeloControlsFilter)
+                return;
             if (EngineReflection.FlyByWire == null)
                 return;
             try

@@ -101,7 +101,7 @@ namespace Oritasy
         internal static float ChineseFontScanInterval(bool isLow)
         {
             // FindObjectsOfType Text is a hitch — set_text prefix covers new labels.
-            return isLow ? 45f : 30f;
+            return isLow ? 90f : 60f;
         }
 
         internal static int ChineseFontOnEnableBudget(bool isLow)
@@ -109,6 +109,7 @@ namespace Oritasy
             return isLow ? 4 : 12;
         }
 
+        /// <summary>HUD/radar only. Never feed MultiMode / LOAL — 175C hunt stays ≥35 km.</summary>
         internal static float HuntRadiusCap(bool isLow, bool isMedOrLower)
         {
             if (isLow) return 8000f;
@@ -116,9 +117,11 @@ namespace Oritasy
             return 14000f;
         }
 
-        internal static int HuntQueriesPerFrame(bool isLow)
+        /// <summary>175C packed LOAL: 16 / 32. Do not lower this to “save CPU”.</summary>
+        internal static int HuntQueriesPerFrame(bool isLow, bool isMedOrLower)
         {
-            return isLow ? 2 : 4;
+            if (isLow) return 16;
+            return 32;
         }
 
         internal static float HuntIntervalMin(bool isLow)

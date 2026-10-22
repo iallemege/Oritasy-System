@@ -25,7 +25,8 @@ namespace WeXon
             bool blockIalOnShips,
             bool isNavalHardpoint,
             int warheadsAvailable,
-            bool rolledPreferNuke)
+            bool rolledPreferNuke,
+            bool oritasyNukesAllowed)
         {
             if (humanWeaponContext)
                 return Path.SkipVanillaKeepList;
@@ -35,7 +36,11 @@ namespace WeXon
                 return Path.StripNukesKeepConventional;
             // IAL nukes ignore stockpile — still allow them when warheadsAvailable == 0.
             if (warheadsAvailable <= 0)
+            {
+                if (!oritasyNukesAllowed)
+                    return Path.StripNukesKeepConventional;
                 return Path.KeepIalStripStockNukes;
+            }
             return Path.AllowVanillaPrefer;
         }
 

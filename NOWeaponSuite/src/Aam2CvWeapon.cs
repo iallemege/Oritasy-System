@@ -180,6 +180,9 @@ namespace WeXon
 
         internal static void Ensure()
         {
+#if ORITASY_COMBINED
+            return;
+#endif
             ResetDeadInjection();
             if (!_injected)
             {

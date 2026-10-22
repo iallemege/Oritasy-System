@@ -11,7 +11,7 @@ using UnityEngine;
 namespace Oritasy
 {
     /// <summary>
-    /// Combined Oritasy.dll already hosts WeXon loadout gates (IAL ships, AGM-T, unrestricted).
+    /// Combined Oritasy.dll already hosts WeXon loadout gates (IAL ships, unrestricted).
     /// Skipping Oritasy's duplicate WeaponChecker prefixes avoids a second Harmony invoke
     /// and stops Oritasy ForceAllow from skipping WeXon's IAL-on-ships deny.
     /// </summary>
@@ -182,16 +182,6 @@ namespace Oritasy
         public bool AddGroundVehicle(int id) { return groundVehicles.Add(id); }
     }
 
-    [HarmonyPatch(typeof(GraphicsHelper), "ApplyAll")]
-    internal static class Patch_GraphicsHelper_ApplyAll
-    {
-        [HarmonyPostfix]
-        private static void Postfix()
-        {
-            EngineQualityService.ApplyNow();
-        }
-    }
-
     [HarmonyPatch(typeof(Aircraft), "Awake")]
     internal static class Patch_Aircraft_Awake
     {
@@ -203,6 +193,8 @@ namespace Oritasy
             Plugin.TrySetupAircraft(__instance);
             ReverseThrustService.EnableCapability(__instance);
             MotionInterpService.ApplyUnit(__instance);
+            CopilotCrewService.EnsureAircraft(__instance);
+            BiaSpawnGuards.Prepare(__instance);
         }
     }
 
@@ -213,83 +205,16 @@ namespace Oritasy
         [HarmonyPatch("SpawnMissile", new Type[] { typeof(MissileDefinition), typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(Unit), typeof(Unit) })]
         private static void PostfixDef(Missile __result)
         {
-            MissileCameraHud.NotifySpawn(__result);
             MotionInterpService.ApplyUnit(__result);
+            KeAmmoCloneService.ConsumeSpawned(__result);
         }
 
         [HarmonyPostfix]
         [HarmonyPatch("SpawnMissile", new Type[] { typeof(GameObject), typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(Unit), typeof(Unit) })]
         private static void PostfixGo(Missile __result)
         {
-            MissileCameraHud.NotifySpawn(__result);
             MotionInterpService.ApplyUnit(__result);
-        }
-    }
-
-    /// <summary>Stamp MCLOS aimpoint after Seek / WeXon, only while the stick is active.</summary>
-    [HarmonyPatch(typeof(Missile), "Steering")]
-    [HarmonyPriority(Priority.Last)]
-    internal static class Patch_Missile_ManualSteering
-    {
-        [HarmonyPrefix]
-        private static void Prefix(Missile __instance)
-        {
-            // P0: every missile hits Steering — bail before any work when F6 manual is off.
-            if (!MissileCameraHud.ManualActive)
-                return;
-            MissileCameraHud.ApplyGuidanceForSteering(__instance);
-        }
-    }
-
-    /// <summary>
-    /// While manually piloting, suppress airburst self-destruct from MissedTarget/LosingGround.
-    /// Seek still runs (arm / tangible / cruise terrain). Impact Detonate is unchanged.
-    /// </summary>
-    [HarmonyPatch(typeof(Missile), "MissedTarget")]
-    internal static class Patch_Missile_ManualMissed
-    {
-        [HarmonyPrefix]
-        private static bool Prefix(Missile __instance, ref bool __result)
-        {
-            if (!MissileCameraHud.IsManualPiloting(__instance))
-                return true;
-            __result = false;
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(Missile), "LosingGround")]
-    internal static class Patch_Missile_ManualLosingGround
-    {
-        [HarmonyPrefix]
-        private static bool Prefix(Missile __instance, ref bool __result)
-        {
-            if (!MissileCameraHud.IsManualPiloting(__instance))
-                return true;
-            __result = false;
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(VaporEffect), "OnEnable")]
-    internal static class Patch_VaporEffect_OnEnable
-    {
-        [HarmonyPostfix]
-        private static void Postfix(VaporEffect __instance)
-        {
-            OritasyHud.EnhanceVaporEffect(__instance);
-        }
-    }
-
-    [HarmonyPatch(typeof(VaporEmitter), "Emit")]
-    internal static class Patch_VaporEmitter_Emit
-    {
-        [HarmonyPrefix]
-        private static void Prefix(ref float alpha, ref float detail)
-        {
-            if (!OritasyHud.AirflowSofteningActive)
-                return;
-            OritasyHud.SoftenVaporEmit(ref alpha, ref detail);
+            KeAmmoCloneService.ConsumeSpawned(__result);
         }
     }
 
@@ -326,6 +251,7 @@ namespace Oritasy
         private static void Postfix(Missile __instance)
         {
             MotionInterpService.ApplyUnit(__instance);
+            KeAmmoCloneService.ConsumeSpawned(__instance);
         }
     }
 
@@ -348,6 +274,10 @@ namespace Oritasy
             if (__instance == null)
                 return;
             Plugin.UnregisterLiveXe(__instance);
+            AircraftIdentity.ForgetAircraft(__instance);
+            BiaSpawnGuards.Forget(__instance);
+            ReverseThrustService.ForgetAircraft(__instance);
+            Patch_J35_GearVisual.ForgetAircraft(__instance);
         }
     }
 
@@ -365,8 +295,7 @@ namespace Oritasy
         }
     }
 
-    [HarmonyPatch(typeof(WeaponSelector), "Initialize")]
-    [HarmonyPatch(new Type[] { typeof(Aircraft), typeof(HardpointSet), typeof(FactionHQ), typeof(Airbase) })]
+    [HarmonyPatch(typeof(WeaponSelector), "Initialize", new Type[] { typeof(Aircraft), typeof(HardpointSet), typeof(FactionHQ), typeof(Airbase) })]
     internal static class Patch_WeaponSelector_Initialize
     {
         [HarmonyPrefix]
@@ -374,6 +303,8 @@ namespace Oritasy
         {
             Plugin.ActiveLoadoutAircraft = aircraft;
             Plugin.EnterPlayerUnrestricted();
+            KeAmmoCloneService.Ensure();
+            KeAmmoCloneService.InjectForAircraft(aircraft);
             if (aircraft != null && Plugin.IsCoinAircraft(aircraft) && aircraft.weaponManager != null)
                 Plugin.RegisterHardpointSets(aircraft.weaponManager);
         }
@@ -388,14 +319,17 @@ namespace Oritasy
     [HarmonyPatch(typeof(PilotPlayerState), "EnterState")]
     internal static class Patch_PilotPlayer_Enter
     {
+        private static readonly FieldInfo PilotAircraftField =
+            AccessTools.Field(typeof(PilotBaseState), "aircraft");
+
         [HarmonyPostfix]
         private static void Postfix(PilotPlayerState __instance, Pilot pilot)
         {
             Plugin.ApplyPilotLimits(__instance);
             Aircraft ac = null;
-            if (AccessTools.Field(typeof(PilotBaseState), "aircraft") != null)
+            if (PilotAircraftField != null)
             {
-                try { ac = AccessTools.Field(typeof(PilotBaseState), "aircraft").GetValue(__instance) as Aircraft; }
+                try { ac = PilotAircraftField.GetValue(__instance) as Aircraft; }
                 catch { }
             }
             if (ac != null)
@@ -413,7 +347,7 @@ namespace Oritasy
         {
             if (Time.unscaledTime < _next)
                 return;
-            _next = Time.unscaledTime + 1f;
+            _next = Time.unscaledTime + 8f;
             Plugin.ApplyPilotLimits(__instance);
         }
     }
@@ -429,11 +363,17 @@ namespace Oritasy
             AccessTools.Field(typeof(PilotBaseState), "aircraft");
 
         [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
         private static bool Prefix(PilotPlayerState __instance)
         {
             if (__instance == null)
                 return true;
-            if (!MissileCameraHud.ManualActive && !PlayerAutopilot.BlocksPlayerControls)
+            if (InfantryModeService.BlocksAircraftInput)
+            {
+                ZeroPilotStick(__instance, true);
+                return false;
+            }
+            if (!HudPackState.ManualActive && !PlayerAutopilot.BlocksPlayerControls)
                 return true;
 
             try
@@ -443,7 +383,7 @@ namespace Oritasy
                 __instance.yawInput = 0f;
 
                 // AP / resupply write stick via AutoAim after FixedUpdateState — do not zero inputs.
-                if (PlayerAutopilot.BlocksPlayerControls && !MissileCameraHud.ManualActive)
+                if (PlayerAutopilot.BlocksPlayerControls && !HudPackState.ManualActive)
                     return false;
 
                 Aircraft ac = AircraftField != null
@@ -466,6 +406,27 @@ namespace Oritasy
 
             return false;
         }
+
+        private static void ZeroPilotStick(PilotPlayerState state, bool infantry)
+        {
+            if (state == null)
+                return;
+            try
+            {
+                state.pitchInput = 0f;
+                state.rollInput = 0f;
+                state.yawInput = 0f;
+            }
+            catch { }
+            Aircraft ac = null;
+            try
+            {
+                ac = AircraftField != null
+                    ? AircraftField.GetValue(state) as Aircraft : null;
+            }
+            catch { }
+            InfantryModeService.SilenceAircraft(ac, infantry && !InfantryModeService.AirHopActive);
+        }
     }
 
     [HarmonyPatch(typeof(PilotPlayerState), "PlayerControls")]
@@ -478,11 +439,14 @@ namespace Oritasy
         private static readonly object[] RewiredButtonArgs = new object[1];
 
         [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
         private static bool Prefix(PilotPlayerState __instance)
         {
+            if (InfantryModeService.BlocksAircraftInput)
+                return false;
             // Block weapons / gear / CM / throttle while missile-pilot, AP, or aerial resupply.
             // Still allow Eject — otherwise AP/resupply/MITL soft-locks bail-out.
-            if (MissileCameraHud.ManualActive || PlayerAutopilot.BlocksPlayerControls)
+            if (HudPackState.ManualActive || PlayerAutopilot.BlocksPlayerControls)
             {
                 TryEjectWhileControlsBlocked(__instance);
                 return false;
@@ -502,8 +466,12 @@ namespace Oritasy
                 if (pilot == null || pilot.aircraft == null)
                     return;
                 Aircraft ac = pilot.aircraft;
+                if (JammerQte.IsActive)
+                    JammerQte.AbortForManualEject();
+                else if (DirjamBridge.IsActive)
+                    DirjamBridge.AbortForManualEject();
                 // Drop AP so ejection is not fighting stick locks.
-                if (PlayerAutopilot.BlocksPlayerControls)
+                if (PlayerAutopilot.IsEngaged)
                     PlayerAutopilot.DisengageFromOutside(false);
                 ac.StartEjectionSequence();
                 if (ac.IsLanded() && pilot.parkedState != null)
@@ -557,9 +525,15 @@ namespace Oritasy
         {
             if (__instance == null || pilot == null)
                 return true;
-            if (!PlayerAutopilot.IsEngaged && !AerialResupply.IsActive && !BeginnerAssist.BlocksControls)
+            if (InfantryModeService.BlocksAircraftInput)
+                return false;
+            if (BeginnerAssist.BlocksControls && !PlayerVanillaTakeoff.IsActive)
+                BeginnerAssist.FailsafeReleaseControls("prefix takeoff desync");
+            if (!PlayerAutopilot.IsEngaged && !AerialResupply.IsActive
+                && !BeginnerAssist.BlocksControls && !JammerQte.IsActive
+                && !DirjamBridge.IsActive)
                 return true;
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
                 return true;
 
             try
@@ -577,6 +551,19 @@ namespace Oritasy
             catch { }
 
             return false; // skip PlayerAxisControls + extra FilterInputs
+        }
+    }
+
+    [HarmonyPatch(typeof(PilotPlayerState), "PlayerThrottleAxis1Controls")]
+    internal static class Patch_PilotPlayer_ThrottleWhileInfantry
+    {
+        [HarmonyPrefix]
+        [HarmonyPriority(Priority.First)]
+        private static bool Prefix()
+        {
+            if (InfantryModeService.BlocksAircraftInput)
+                return false;
+            return true;
         }
     }
 
@@ -728,6 +715,8 @@ namespace Oritasy
                     if (m != null && m.prefab != null && HaveScratch.Add(m))
                         outAvailable.Add(m);
                 }
+                KeAmmoCloneService.Ensure();
+                KeAmmoCloneService.AppendToAvailable(hardpointSet, outAvailable);
             }
             finally
             {
@@ -745,6 +734,7 @@ namespace Oritasy
         private static void PostfixStatic(Encyclopedia instance)
         {
             Plugin.ApplyAll();
+            IcarusAircraftRegistry.RegisterAllNetwork();
         }
 
         [HarmonyPostfix]
@@ -752,6 +742,7 @@ namespace Oritasy
         private static void PostfixInstance()
         {
             Plugin.ApplyAll();
+            IcarusAircraftRegistry.RegisterAllNetwork();
         }
     }
 
@@ -804,7 +795,8 @@ namespace Oritasy
 
     /// <summary>
     /// Second FilterInputs in the same physics tick re-filters already-smoothed stick
-    /// and walks the jet left/right while holding pitch. Skip it for the local player.
+    /// and walks conventional jets left/right while holding pitch. Skip only that
+    /// duplicate — never rewrite FBW/SAS outputs after Filter.
     /// </summary>
     [HarmonyPatch(typeof(Aircraft), "FilterInputs")]
     internal static class Patch_Aircraft_FilterInputs_PitchOnly
@@ -813,12 +805,6 @@ namespace Oritasy
         private static bool Prefix(Aircraft __instance)
         {
             return PitchStickFilterService.AllowFilter(__instance);
-        }
-
-        [HarmonyPostfix]
-        private static void Postfix(Aircraft __instance)
-        {
-            PitchStickFilterService.AfterFilter(__instance);
         }
     }
 

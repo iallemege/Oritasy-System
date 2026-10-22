@@ -36,7 +36,7 @@ namespace Oritasy
         internal static void Tick()
         {
             // Never active while flying the aircraft — only F6 manual missile pilot.
-            if (!MissileCameraHud.ManualActive)
+            if (!HudPackState.ManualActive)
             {
                 UnbindRadar();
                 Blips.Clear();
@@ -67,14 +67,14 @@ namespace Oritasy
         internal static void Draw()
         {
             // Independent HUD must not appear while piloting the aircraft.
-            if (!MissileCameraHud.ManualActive)
+            if (!HudPackState.ManualActive)
                 return;
             if (!HudWanted())
                 return;
             if (Event.current != null && Event.current.type != EventType.Repaint)
                 return;
 
-            Missile missile = MissileCameraHud.FollowMissile;
+            Missile missile = HudPackState.MitlFollowMissile;
             if (missile == null)
                 return;
 

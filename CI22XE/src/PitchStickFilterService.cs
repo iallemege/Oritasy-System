@@ -3,26 +3,28 @@ using UnityEngine;
 namespace Oritasy
 {
     /// <summary>
-    /// Player stick: skip the extra FilterInputs pass (stale filtered stick → left/right
-    /// walk). Pitch-only: zero leftover roll/yaw, never inject bank-hold roll.
+    /// Skip a duplicate FilterInputs on the same physics tick for conventional jets
+    /// (stale already-smoothed stick → left/right walk).
+    /// Do not rewrite FBW/SAS outputs, and never drop FilterInputs on helos / hover /
+    /// STOVL / autopilot — those passes ARE the flight control.
     /// </summary>
     internal static class PitchStickFilterService
     {
-        private const float DeadRoll = 0.12f;
-        private const float DeadYaw = 0.12f;
-        private const float PitchOnly = 0.22f;
-
         private static int _acId;
         private static float _fixedTime = -1f;
         private static int _calls;
-        private static float _rawPitch;
-        private static float _rawRoll;
-        private static float _rawYaw;
+        private static int _everyId;
+        private static bool _every;
 
         internal static bool AllowFilter(Aircraft ac)
         {
             if (!IsLocalPlayer(ac))
                 return true;
+            if (PlayerAutopilot.BlocksPlayerControls || HudPackState.ManualActive)
+                return true;
+            if (NeedsEveryFilterPass(ac))
+                return true;
+
             float t = Time.fixedTime;
             int id = ac.GetInstanceID();
             if (id != _acId || t != _fixedTime)
@@ -32,53 +34,47 @@ namespace Oritasy
                 _calls = 0;
             }
             _calls++;
-            if (_calls > 1)
-                return false;
-            CaptureRaw(ac);
-            return true;
+            return _calls <= 1;
         }
 
-        internal static void AfterFilter(Aircraft ac)
+        private static bool NeedsEveryFilterPass(Aircraft ac)
         {
-            if (!IsLocalPlayer(ac))
-                return;
-            if (_calls != 1)
-                return;
-            if (PlayerAutopilot.BlocksPlayerControls || MissileCameraHud.ManualActive)
-                return;
-
-            ControlInputs inputs = null;
-            try { inputs = ac.GetInputs(); }
-            catch { }
-            if (inputs == null)
-                return;
-
-            if (Mathf.Abs(_rawPitch) < PitchOnly)
-                return;
-            if (Mathf.Abs(_rawRoll) > DeadRoll || Mathf.Abs(_rawYaw) > DeadYaw)
-                return;
-
-            // Pitch-only: drop leftover roll/yaw. Do not command roll from bank attitude —
-            // that made pull/push feel like left/right roll.
-            inputs.roll = 0f;
-            inputs.yaw = 0f;
+            int id = ac.GetInstanceID();
+            if (id == _everyId)
+                return _every;
+            _everyId = id;
+            _every = DetectNeedsEvery(ac);
+            return _every;
         }
 
-        private static void CaptureRaw(Aircraft ac)
+        private static bool DetectNeedsEvery(Aircraft ac)
         {
-            ControlInputs inputs = null;
-            try { inputs = ac.GetInputs(); }
-            catch { }
-            if (inputs == null)
+            try
             {
-                _rawPitch = 0f;
-                _rawRoll = 0f;
-                _rawYaw = 0f;
-                return;
+                if (ac.IsAutoHoverEnabled())
+                    return true;
             }
-            _rawPitch = inputs.pitch;
-            _rawRoll = inputs.roll;
-            _rawYaw = inputs.yaw;
+            catch { }
+            try
+            {
+                string key = AircraftIdentity.GetKey(ac);
+                if (AircraftIdentity.IsRotorcraft(key)
+                    || AircraftIdentity.IsVl49(key)
+                    || AircraftIdentity.IsStovlNozzle(ac))
+                    return true;
+            }
+            catch { }
+            try
+            {
+                if (ac.GetComponentInChildren<HeloControlsFilter>(true) != null)
+                    return true;
+                if (ac.GetComponentInChildren<RelaxedStabilityController>(true) != null)
+                    return true;
+                if (ac.GetComponentInChildren<TiltWingController>(true) != null)
+                    return true;
+            }
+            catch { }
+            return false;
         }
 
         private static bool IsLocalPlayer(Aircraft ac)

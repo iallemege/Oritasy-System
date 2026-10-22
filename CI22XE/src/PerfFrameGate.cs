@@ -5,7 +5,9 @@ namespace Oritasy
 {
     /// <summary>
     /// Main-thread frame budget. Unity APIs stay on the game thread.
-    /// After a hitch we skip hunt / polish (fonts, music, zh scan) — never skip HUD draws.
+    /// After a REAL hitch we skip hunt / polish (fonts, music, zh scan) — never skip HUD draws.
+    /// Do NOT treat a steady ~30 FPS (33ms) as a hitch — that softSkip/recover death-spiral
+    /// made maneuvering feel like continuous stutter + stick jitter.
     /// </summary>
     internal static class PerfFrameGate
     {
@@ -16,6 +18,10 @@ namespace Oritasy
         private static bool _softSkip;
         private static int _hitchRecoveries;
 
+        // Steady LowEnd often sits 30–40ms. Only spike-skip polish.
+        private const float SoftSkipMs = 70f;
+        private const float HitchRecoverMs = 80f;
+
         internal static float LastDtMs
         {
             get { return _lastDtMs; }
@@ -24,6 +30,12 @@ namespace Oritasy
         internal static bool Recovering
         {
             get { return Time.frameCount <= _recoverUntil; }
+        }
+
+        /// <summary>True when last frame >= SoftSkipMs. Polish-only; never LowEnd-gated.</summary>
+        internal static bool SoftSkipping
+        {
+            get { return _softSkip; }
         }
 
         internal static int HitchRecoveries
@@ -45,8 +57,8 @@ namespace Oritasy
             _begunFrame = f;
 
             _lastDtMs = Time.unscaledDeltaTime * 1000f;
-            _softSkip = _lastDtMs >= 20f;
-            if (_lastDtMs >= 33.5f)
+            _softSkip = _lastDtMs >= SoftSkipMs;
+            if (_lastDtMs >= HitchRecoverMs)
             {
                 _recoverUntil = f + 2;
                 _hitchRecoveries++;

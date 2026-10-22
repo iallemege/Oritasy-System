@@ -20,9 +20,8 @@ namespace WeXon
         internal enum ModeBranch
         {
             ShipCoast = 0,
-            Kh85Terrain = 1,
-            Sticky = 2,
-            OpenHunt = 3
+            Sticky = 1,
+            OpenHunt = 2
         }
 
         /// <summary>Sticky / designated lock actions (live Unit or coast last aim).</summary>
@@ -31,13 +30,6 @@ namespace WeXon
             DropCoast = 0,
             GuideAlive = 1,
             SyncHotOnly = 2
-        }
-
-        /// <summary>Kh85C/E/S sticky path (Kh85MT owns aim — sync only, never GuideTo).</summary>
-        internal enum Kh85StickyAction
-        {
-            DropCoast = 0,
-            SyncAlive = 1
         }
 
         internal enum OpenHuntAction
@@ -88,16 +80,27 @@ namespace WeXon
 
         internal static ModeBranch ResolveModeBranch(
             bool shipLaunchNeedsCoast,
-            bool isKh85CTerrain,
             bool stickyOrPlayerDesignated)
         {
             if (shipLaunchNeedsCoast)
                 return ModeBranch.ShipCoast;
-            if (isKh85CTerrain)
-                return ModeBranch.Kh85Terrain;
             if (stickyOrPlayerDesignated)
                 return ModeBranch.Sticky;
             return ModeBranch.OpenHunt;
+        }
+
+        internal static bool ShipLaunchNeedsCoast(
+            bool isShipLaunched,
+            float ageSec,
+            float speedMps,
+            float coastAgeSec,
+            float coastMinSpeedMps)
+        {
+            if (!isShipLaunched)
+                return false;
+            float ageGate = coastAgeSec > 0f ? coastAgeSec : 1.0f;
+            float spdGate = coastMinSpeedMps > 0f ? coastMinSpeedMps : 80f;
+            return ageSec < ageGate || speedMps < spdGate;
         }
 
         internal static StickyAction ResolveStickyBefore(
@@ -128,33 +131,6 @@ namespace WeXon
             if (aimAlreadySyncedThisFrame)
                 return StickyAction.SyncHotOnly;
             return StickyAction.GuideAlive;
-        }
-
-        internal static Kh85StickyAction ResolveKh85Sticky(
-            bool ejectedPilot,
-            bool targetNonNull,
-            bool alive,
-            bool confirmedFriendly)
-        {
-            if (ejectedPilot)
-                return Kh85StickyAction.DropCoast;
-            if (targetNonNull && alive && !confirmedFriendly)
-                return Kh85StickyAction.SyncAlive;
-            return Kh85StickyAction.DropCoast;
-        }
-
-        /// <summary>Kh85 reapply sticky uses null/dead/friendly as DropCoast (same as SyncAlive inverse).</summary>
-        internal static Kh85StickyAction ResolveKh85StickyReapply(
-            bool ejectedPilot,
-            bool targetNonNull,
-            bool alive,
-            bool confirmedFriendly)
-        {
-            if (ejectedPilot)
-                return Kh85StickyAction.DropCoast;
-            if (!targetNonNull || !alive || confirmedFriendly)
-                return Kh85StickyAction.DropCoast;
-            return Kh85StickyAction.SyncAlive;
         }
 
         internal static bool DesignatedCheckDue(float now, float nextDesignatedCheckAt)
@@ -205,52 +181,28 @@ namespace WeXon
             return OpenHuntAction.ReleaseVanilla;
         }
 
-        /// <summary>Kh85 terrain free path (non-sticky) on Before / Reapply.</summary>
-        internal static OpenHuntAction ResolveKh85Free(
-            bool allowFreeAttack,
-            bool stickyOnly,
-            bool playerDesignated,
-            bool targetEngageableAlive,
-            bool huntDue)
-        {
-            if (stickyOnly || playerDesignated || !allowFreeAttack)
-                return OpenHuntAction.None;
-            if (targetEngageableAlive)
-                return OpenHuntAction.SyncHotExisting;
-            if (huntDue)
-                return OpenHuntAction.TryFreeHunt;
-            return OpenHuntAction.None;
-        }
-
         /// <summary>Setup() initial lock branch after soft-launch coast.</summary>
         internal enum SetupLockAction
         {
             ShipCoastHold = 0,
             StickyGuide = 1,
-            StickyDeferKh85 = 2,
-            FreeHuntLoal = 3,
-            None = 4
+            FreeHuntLoal = 2,
+            None = 3
         }
 
         internal static SetupLockAction ResolveSetupLock(
             bool shipLaunchNeedsCoast,
             bool targetEngageable,
-            bool deferKh85GuideTo,
             bool allowFreeAttack,
             bool stickyOnly)
         {
             if (shipLaunchNeedsCoast)
                 return SetupLockAction.ShipCoastHold;
             if (targetEngageable)
-                return deferKh85GuideTo ? SetupLockAction.StickyDeferKh85 : SetupLockAction.StickyGuide;
+                return SetupLockAction.StickyGuide;
             if (allowFreeAttack && !stickyOnly)
                 return SetupLockAction.FreeHuntLoal;
             return SetupLockAction.None;
-        }
-
-        internal static bool ShouldClearGuidanceOverrideOnKh85Setup(bool deferKh85, bool isKh85CTerrain)
-        {
-            return deferKh85 || isKh85CTerrain;
         }
     }
 }

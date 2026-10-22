@@ -191,5 +191,16 @@ namespace Oritasy
             "AB-4XE 蜂鸟是 Veyrn 的袖珍高风险突防机——Alkyon 骨架套新出口名——专为钻严密防空、叮咬海军"
             + "船坞而生。飞行员笑称 XE 让这只鸟更凶；掮客则把它当可否认突袭的信使机体。对等批次先到 PALA "
             + "打击单元，随后 BDF 特遣队又向同一批北方中间人回购礼尚往来。";
+
+        internal const string J35En =
+            "This is a 1959 Veyrn Aeronautic fighter-interceptor. After more than forty "
+            + "modernizations it received Tarus Dynamic's Dovern RV-4: 2.17 times the original "
+            + "thrust and 50 percent lighter. As an export variant the afterburner was removed, "
+            + "limiting it to Mach 1.7, while high agility and a high-precision gun were retained.";
+
+        internal const string J35Zh =
+            "这是1959年Veyrn Aeronautic的战斗截击机设计，经过四十余次现代化后，其换上了Tarus Dynamic"
+            + "的Dovern RV-4引擎，推力达到了原始型号的2.17倍的同时，重量轻了50%，但是作为外贸版本，"
+            + "其拆除了加力燃烧室，使得其只能飞行到1.7马赫的飞行速度，不过高机动，和高精度机炮都保留了下来。";
     }
 }

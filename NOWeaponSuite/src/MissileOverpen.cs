@@ -49,16 +49,20 @@ namespace WeXon
             }
             catch { return false; }
 
-            if (Plugin.IsGunShellMissile(missile) || Plugin.IsMotorlessProjectile(missile))
+            bool gunShell = Plugin.IsGunShellMissile(missile);
+            bool keAmmo = Plugin.IsKeReplicaMissile(missile);
+            if (Plugin.IsMotorlessProjectile(missile) && !gunShell)
                 return false;
             if (AgmTDispenser.IsSafeDiscard(missile))
                 return false;
             // RAM-45 / R9 / ship VLS: 80m look-ahead detonates on the launching hull after pitch-over.
-            if (Plugin.IsShipLaunchedMissile(missile) || Plugin.IsSamRadarFamilyMissile(missile))
+            if (!gunShell && !keAmmo && (Plugin.IsShipLaunchedMissile(missile) || Plugin.IsSamRadarFamilyMissile(missile)))
                 return false;
             // Vanilla AGM-48 / AGM-68 (optical): overpen skips DetectCollisions and the
             // warhead never fuzes on tanks / buildings. Leave impact to vanilla.
-            if (LeaveVanillaImpact(missile))
+            // Gun shells use OpticalSeekerShell — do not treat them as AGMs.
+            // [KE] replicas are meant to overpen instead of HEAT-fuzing.
+            if (!gunShell && !keAmmo && LeaveVanillaImpact(missile))
                 return false;
 
             int id = missile.GetInstanceID();
@@ -98,6 +102,8 @@ namespace WeXon
             float minAge = Plugin.OverpenMinAge != null
                 ? Plugin.OverpenMinAge.Value
                 : MissileOverpenMathService.DefaultMinAge;
+            if (gunShell && minAge > MissileOverpenMathService.GunShellMinAge)
+                minAge = MissileOverpenMathService.GunShellMinAge;
             if (age < minAge)
                 return false;
 
@@ -106,7 +112,7 @@ namespace WeXon
                 Unit launchOwner = missile.owner;
                 if (launchOwner != null && launchOwner.transform != null)
                 {
-                    float ownR = MissileOverpenMathService.OwnerSafeRangeM;
+                    float ownR = gunShell ? 28f : MissileOverpenMathService.OwnerSafeRangeM;
                     if ((now - launchOwner.transform.position).sqrMagnitude < ownR * ownR)
                         return false;
                 }
@@ -173,13 +179,24 @@ namespace WeXon
                     continue;
                 if (unit is Scenery)
                     continue;
+                if (GFactorRutherfordField.IsShielded(unit)
+                    || GFactorRutherfordField.IsShieldedDamageable(dmg)
+                    || GFactorRutherfordField.IsInsideField(unit)
+                    || GFactorRutherfordField.PositionNearField(hit.point))
+                {
+                    GFactorRutherfordField.DudMunition(missile);
+                    return true;
+                }
 
                 bool isBuilding = (dmg is MapBuilding) || (unit is Building);
                 bool isGround = unit is GroundVehicle;
+                bool rocket = false;
+                try { rocket = Plugin.IsRocketOrUnguidedMissile(missile); }
+                catch { }
                 MissileOverpenMathService.Decision dec = MissileOverpenMathService.Decide(
                     Plugin.IsNukeVariantMissile(missile),
                     AgmTWeapon.HasBusDispenser(missile),
-                    false,
+                    gunShell || keAmmo,
                     Plugin.IsBallisticMissile(missile) || Plugin.IsCruiseMissile(missile),
                     IsArmedSafe(missile),
                     age,
@@ -193,21 +210,21 @@ namespace WeXon
                     isGround,
                     unit is Missile);
 
-                if (unit is GroundVehicle
+                if (rocket && !keAmmo && (isGround || isBuilding || unit is Ship))
+                    dec = MissileOverpenMathService.Decision.KineticDetonate;
+
+                if (!gunShell && !keAmmo && unit is GroundVehicle
                     && dec == MissileOverpenMathService.Decision.KineticOverpen
-                    && IsArmedSafe(missile))
+                    && IsArmedSafe(missile)
+                    && speed < MissileOverpenMathService.VehicleOverpenMinSpeed)
                 {
-                    float tm = 0f;
-                    try { tm = unit.GetMass(); }
-                    catch { }
-                    if (MissileOverpenMathService.VehicleStopsOverpen(tm, speed))
-                        dec = MissileOverpenMathService.Decision.KineticDetonate;
+                    dec = MissileOverpenMathService.Decision.KineticDetonate;
                 }
 
                 if (dec == MissileOverpenMathService.Decision.Skip)
                     continue;
 
-                ApplyKinetic(missile, dmg, unit, speed);
+                ApplyKinetic(missile, dmg, unit, speed, gunShell);
                 st.HitUnits.Add(uid);
                 st.Hits++;
                 handled = true;
@@ -299,7 +316,7 @@ namespace WeXon
             }
         }
 
-        private static void ApplyKinetic(Missile missile, IDamageable dmg, Unit unit, float speed)
+        private static void ApplyKinetic(Missile missile, IDamageable dmg, Unit unit, float speed, bool gunShell)
         {
             float mass = 80f;
             try
@@ -315,10 +332,35 @@ namespace WeXon
             }
             catch { }
 
-            float scale = Plugin.OverpenKineticScale != null
-                ? Plugin.OverpenKineticScale.Value
-                : MissileOverpenMathService.DefaultKineticScale;
-            float impact = MissileOverpenMathService.KineticImpact(mass, speed, scale);
+            if (gunShell && InfoField != null)
+            {
+                try
+                {
+                    WeaponInfo info = InfoField.GetValue(missile) as WeaponInfo;
+                    if (info != null && info.massPerRound > 0.2f)
+                        mass = info.massPerRound;
+                }
+                catch { }
+            }
+
+            float impact;
+            if (gunShell)
+            {
+                impact = mass * Mathf.Max(speed, 1f) * MissileOverpenMathService.GunShellKeScale;
+                if (impact < 40f)
+                    impact = 40f;
+                if (impact > 700f)
+                    impact = 700f;
+            }
+            else
+            {
+                float scale = Plugin.OverpenKineticScale != null
+                    ? Plugin.OverpenKineticScale.Value
+                    : MissileOverpenMathService.DefaultKineticScale;
+                impact = MissileOverpenMathService.KineticImpact(mass, speed, scale);
+                if ((unit is GroundVehicle || unit is Ship) && impact > 1600f)
+                    impact = 1600f;
+            }
             float pierce = 0f;
             try
             {

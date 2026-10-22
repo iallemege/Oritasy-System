@@ -230,6 +230,8 @@ namespace WeXon
 
         internal static void Ensure()
         {
+            if (!Plugin.AgmTOwnedByWeXon())
+                return;
             DestroyLegacyStampedBusPrefabs();
             ResetDeadInjection();
 
@@ -394,6 +396,8 @@ namespace WeXon
                     wm == null || wm.hardpointSets == null, IsShipWeaponManager(wm))
                 == AgmTLifecycleGateService.WmInjectPath.Skip)
                 return 0;
+            if (IsJ35Draken(wm))
+                return 0;
 
             int added = 0;
             for (int h = 0; h < wm.hardpointSets.Length; h++)
@@ -408,6 +412,25 @@ namespace WeXon
                 added += AddAgmTToHardpoint(hs);
             }
             return added;
+        }
+
+        private static bool IsJ35Draken(WeaponManager wm)
+        {
+            if (wm == null)
+                return false;
+            Aircraft ac = null;
+            try { ac = wm.GetComponentInParent<Aircraft>(); }
+            catch { ac = null; }
+            if (ac == null)
+            {
+                try { ac = wm.GetComponent<Aircraft>(); }
+                catch { ac = null; }
+            }
+            if (ac == null || ac.definition == null)
+                return false;
+            string key = ac.definition.jsonKey;
+            return string.Equals(key, "J35_Draken", StringComparison.Ordinal)
+                || string.Equals(key, "J35XE_Wyvern", StringComparison.Ordinal);
         }
 
         /// <summary>

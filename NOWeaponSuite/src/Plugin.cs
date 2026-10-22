@@ -13,113 +13,25 @@ namespace WeXon
 {
     /// <summary>
     /// WeXon weapon pack:
-    /// - Guided dual-mode missiles (MultiMode / free-hunt) carry [IAL] (ex-[MM] tag)
-    /// - Separate *_IAL WeaponMount clones carry nuclear warheads + [IAL] [10kt]
-    /// - Stock nuclear / rockets / ballistic / cruise / shells: no [IAL] dual-mode branding
-    /// - IFF gating (no OpticalIffSeeker replace — that path caused dive/self-destruct)
+    /// - Vanilla missiles keep conventional warheads + multimode + 35km free-hunt
+    /// - Separate IAL / [10kt] WeaponMount clones carry nuclear warheads
+    /// - IFF gating (no OpticalIffSeeker replace �?that path caused dive/self-destruct)
     /// - Encyclopedia pages branded WeXon
-    ///
-    /// Combined Oritasy.dll: hosted by Oritasy.Plugin (no second [BepInPlugin]).
-    /// Dual BepInPlugin in one DLL doubled Harmony + Update and caused multi-second stalls.
     /// </summary>
 #if !ORITASY_COMBINED
     [BepInPlugin(PluginInfo.GUID, PluginInfo.Name, PluginInfo.Version)]
-    public class Plugin : BaseUnityPlugin
-#else
-    public class Plugin : MonoBehaviour
+    [BepInDependency("bia.runtime")]
 #endif
+    public partial class Plugin : BaseUnityPlugin
     {
         internal const string PackName = "WeXon";
         internal const string PackDescLine = "[WeXon]";
         internal static ManualLogSource Log;
 
-        static Plugin()
-        {
-            ConfigGuidMigrate.CopyLegacy(PluginInfo.GUID, PluginInfo.LegacyGUID);
-        }
-
-#if ORITASY_COMBINED
-        private static BaseUnityPlugin _host;
-        private static ConfigFile _hostConfig;
-        private ConfigFile Config
-        {
-            get { return _hostConfig; }
-        }
-
-        /// <summary>Oritasy combined host attaches WeXon lifecycle on the same GameObject.</summary>
-        internal static void StartHosted(BaseUnityPlugin host, ManualLogSource log, ConfigFile config)
-        {
-            if (host == null || config == null)
-                return;
-            _host = host;
-            _hostConfig = config;
-            Log = log ?? BepInEx.Logging.Logger.CreateLogSource(PluginInfo.Name);
-            try
-            {
-                RunInit();
-            }
-            catch (Exception ex)
-            {
-                if (Log != null)
-                    Log.LogError("WeXon init: " + DescribeEx(ex));
-            }
-            // Do not AddComponent — packed Assembly.Load has no Location and Unity
-            // rejects extra MonoBehaviours. Tick/GUI run from Oritasy.Plugin.
-        }
-
-        internal static void DrawHostedGui()
-        {
-            DrawCareerGui();
-        }
-
-        private static string DescribeEx(Exception ex)
-        {
-            if (ex == null)
-                return "";
-            string s = "";
-            Exception e = ex;
-            int n = 0;
-            while (e != null && n < 8)
-            {
-                if (n > 0)
-                    s += " --> ";
-                s += e.GetType().Name + ": " + e.Message;
-                e = e.InnerException;
-                n++;
-            }
-            return s;
-        }
-#endif
-        private static bool _initDone;
-#if !ORITASY_COMBINED
-        private static ConfigFile _bindConfig;
-
-        private static string DescribeEx(Exception ex)
-        {
-            if (ex == null)
-                return "";
-            string s = "";
-            Exception e = ex;
-            int n = 0;
-            while (e != null && n < 8)
-            {
-                if (n > 0)
-                    s += " --> ";
-                s += e.GetType().Name + ": " + e.Message;
-                e = e.InnerException;
-                n++;
-            }
-            return s;
-        }
-#endif
-
         internal static ConfigEntry<bool> EnableNukeVariants;
         internal static ConfigEntry<bool> EnableMultiMode;
-        /// <summary>When false (default), optical/laser missiles skip MultiModeBrain for CPU.</summary>
-        internal static ConfigEntry<bool> EnableOpticalMultiMode;
         internal static ConfigEntry<bool> EnableUnrestricted;
         internal static ConfigEntry<bool> EnableIff;
-        internal static ConfigEntry<bool> VanillaMissileBackup;
         internal static ConfigEntry<bool> EnableAgmT;
         internal static ConfigEntry<int> AgmTSubCount;
         internal static ConfigEntry<float> AgmTMinFlightTime;
@@ -193,13 +105,6 @@ namespace WeXon
         internal static ConfigEntry<float> ProximityMinAge;
         internal static ConfigEntry<bool> ProximityRequireClosing;
 
-        internal static ConfigEntry<bool> EnableMissileOverpen;
-        internal static ConfigEntry<float> OverpenKineticScale;
-        internal static ConfigEntry<float> OverpenSphereRadius;
-        internal static ConfigEntry<int> OverpenMaxHits;
-        internal static ConfigEntry<float> OverpenSpeedKeep;
-        internal static ConfigEntry<float> OverpenMinAge;
-
         /// <summary>Fire→async RailLaunch→SpawnMissile: count of nuke warheads waiting to apply.</summary>
         internal static int PendingNukeSpawns;
         /// <summary>Weapon / unit that last fired an IAL nuke �?pending must match owner to avoid racing conventional spawns.</summary>
@@ -250,18 +155,6 @@ namespace WeXon
         private static readonly Dictionary<Type, FieldInfo> SeekerTargetTransformFields = new Dictionary<Type, FieldInfo>(16);
         private static readonly Dictionary<Type, FieldInfo> SeekerHasVisualFields = new Dictionary<Type, FieldInfo>(16);
 
-        /// <summary>Kh85 identity resolved once per missile instance (hot paths must not GetComponent-string).</summary>
-        internal enum Kh85Kind : byte
-        {
-            Unresolved = 0,
-            NotKh85 = 1,
-            MultiMode = 2,
-            TerrainAim = 3
-        }
-
-        private static readonly Dictionary<int, byte> Kh85KindByMissileId = new Dictionary<int, byte>(128);
-        private static float _nextKh85KindPrune;
-
         private static Type WarheadType;
         private static FieldInfo WhAir;
         private static FieldInfo WhArmor;
@@ -276,11 +169,18 @@ namespace WeXon
         internal static readonly List<WeaponMount> NukeMountClones = new List<WeaponMount>();
         private static float NextMountRefresh;
 
+        internal static void OfferExtraMount(WeaponMount m)
+        {
+            if (m == null)
+                return;
+            if (CachedMountSet.Add(m))
+                CachedMounts.Add(m);
+        }
+
         private static bool _scannedAssets;
         private static bool _encyclopediaReady;
         private static float _nextEncyclopediaRetry;
         private static float _nextAgmTRetry;
-        private static float _nextAam2CvRetry;
         private static float _nextNukeFxRetry;
         private static float _nextNukeMountRetry;
         private static bool NuclearIalPurgeDone;
@@ -307,31 +207,11 @@ namespace WeXon
                 PlayerUnrestrictedDepth--;
         }
 
-        /// <summary>
-        /// Career Profile syncs WeXon EnableUnrestricted + Oritasy UnrestrictedWeapons.
-        /// Combined pack still ORs both in case an old cfg only flipped one.
-        /// </summary>
-        internal static bool UnrestrictedFeatureOn()
-        {
-            if (EnableUnrestricted != null && EnableUnrestricted.Value)
-                return true;
-#if ORITASY_COMBINED
-            try
-            {
-                if (Oritasy.Plugin.UnrestrictedWeapons != null
-                    && Oritasy.Plugin.UnrestrictedWeapons.Value)
-                    return true;
-            }
-            catch { }
-#endif
-            return false;
-        }
-
         /// <summary>Unrestricted hardpoints apply to the human player only — never AI auto-loadout.</summary>
         internal static bool AllowPlayerUnrestricted()
         {
             return LoadoutMountGateService.AllowPlayerUnrestricted(
-                UnrestrictedFeatureOn(), PlayerUnrestrictedDepth);
+                EnableUnrestricted.Value, PlayerUnrestrictedDepth);
         }
 
         /// <summary>Human loadout / local GetAvailableWeapons �?PreferNukesFilter must not strip IAL.</summary>
@@ -383,108 +263,77 @@ namespace WeXon
             return false;
         }
 
+        private static bool _wexonInitDone;
+
         private void Awake()
         {
-#if !ORITASY_COMBINED
+#if ORITASY_COMBINED
+            return;
+#else
             Log = Logger;
-            _bindConfig = Config;
+            RunInit(Config);
 #endif
-            try
-            {
-                RunInit();
-            }
-            catch (Exception ex)
-            {
-                if (Log != null)
-                    Log.LogError("WeXon Awake: " + DescribeEx(ex));
-            }
         }
 
-        private static void RunInit()
+        internal static void RunInit(ConfigFile config)
         {
-            if (_initDone)
+            if (config == null || _wexonInitDone)
                 return;
-            if (Log == null)
-                Log = BepInEx.Logging.Logger.CreateLogSource(PluginInfo.Name);
-#if ORITASY_COMBINED
-            ConfigFile cfg = _hostConfig;
-#else
-            ConfigFile cfg = _bindConfig;
-#endif
-            if (cfg == null)
-            {
-                Log.LogError("WeXon missing Config — abort.");
-                return;
-            }
+            _wexonInitDone = true;
             CacheWarheadReflection();
 
-            EnableNukeVariants = cfg.Bind("Features", "EnableNukeVariants", true,
-                "Create separate nuclear [IAL]/[10kt] WeaponMount clones. Vanilla mounts stay conventional.");
-            // Dual-seeker / free-hunt. Optical light MM = LOAL + lock assist (vanilla Seek steers).
-            EnableMultiMode = cfg.Bind("Features", "EnableMultiMode", true,
-                "Dual-seeker multi-mode + free-hunt on allowed missiles (see EnableOpticalAssist).");
-            EnableOpticalMultiMode = cfg.Bind("MultiMode", "EnableOpticalAssist", true,
-                "Optical/laser: light MultiModeBrain for LOAL + sticky lock assist (no GuideTo). Off = vanilla Seek only (saves CPU, kills LOAL).");
-            // 109 defaulted this false and wiped LOAL — force restore once for existing cfgs.
-            ConfigEntry<bool> opticalLoalRestored = cfg.Bind("MultiMode", "OpticalAssistLoalRestored110", false,
-                "Internal: one-shot restore EnableOpticalAssist after 109 CPU default.");
-            if (!opticalLoalRestored.Value)
-            {
-                EnableOpticalMultiMode.Value = true;
-                opticalLoalRestored.Value = true;
-            }
-            EnableUnrestricted = cfg.Bind("Features", "EnableUnrestricted", false,
+            EnableNukeVariants = config.Bind("Features", "EnableNukeVariants", true,
+                "Oritasy-series nuclear warheads ([IAL]/[10kt] clones). Off: hangar + AI never get those clones. Vanilla nukes (Genie, tacNuke) stay.");
+            EnableMultiMode = config.Bind("Features", "EnableMultiMode", true,
+                "Dual-seeker multi-mode + free-hunt on all allowed missiles.");
+            EnableUnrestricted = config.Bind("Features", "EnableUnrestricted", false,
                 "Player loadout only: any weapon on any hardpoint. AI keeps vanilla mount options. Off by default; toggle in Career Profile.");
-            EnableIff = cfg.Bind("Features", "EnableIFF", true,
+            EnableIff = config.Bind("Features", "EnableIFF", true,
                 "Reject friendly locks (from OpticalIFF). Does not replace vanilla seeker.");
-            VanillaMissileBackup = cfg.Bind("Features", "VanillaMissileBackup", false,
-                "Stock missiles use vanilla seeker, fuze, and collision (no MM / overpen / IFF steal). F9, TGM-85, AGM-T unchanged.");
-            EnableAgmT = cfg.Bind("Features", "EnableAgmT", true,
+            EnableAgmT = config.Bind("Features", "EnableAgmT", true,
                 "ACM-119 [IAL] / ACNM-118 [IAL]: Veyrn Aeronautics cluster bus �?6× GS25 (conv. never nuclear).");
-            AgmTSubCount = cfg.Bind("AGM-T", "SubmunitionCount", 6, "GS25 count per ACM-119 / ACNM-118 (1-24).");
+            AgmTSubCount = config.Bind("AGM-T", "SubmunitionCount", 6, "GS25 count per ACM-119 / ACNM-118 (1-24).");
             // Migrate older default (12) �?6
             if (AgmTSubCount.Value == 12)
                 AgmTSubCount.Value = 6;
-            AgmTMinFlightTime = cfg.Bind("AGM-T", "MinFlightTime", 5f,
+            AgmTMinFlightTime = config.Bind("AGM-T", "MinFlightTime", 5f,
                 "Seconds before dispense (hard floor 5s even if lowered).");
-            AgmTMaxFlightTime = cfg.Bind("AGM-T", "MaxFlightTime", 25f, "Force dispense after this many seconds.");
-            AgmTDispenseDistance = cfg.Bind("AGM-T", "DispenseDistance", 2500f, "Dispense when within this range of lock (m).");
-            AgmTSearchRadius = cfg.Bind("AGM-T", "SearchRadius", 35000f, "GS25 target search radius (m).");
-            AgmTBusHuntRadius = cfg.Bind("AGM-T", "BusHuntRadius", 35000f,
+            AgmTMaxFlightTime = config.Bind("AGM-T", "MaxFlightTime", 25f, "Force dispense after this many seconds.");
+            AgmTDispenseDistance = config.Bind("AGM-T", "DispenseDistance", 2500f, "Dispense when within this range of lock (m).");
+            AgmTSearchRadius = config.Bind("AGM-T", "SearchRadius", 35000f, "GS25 target search radius (m).");
+            AgmTBusHuntRadius = config.Bind("AGM-T", "BusHuntRadius", 20000f,
                 "AGM-T bus self-search radius for dense air/ground packs (m).");
-            if (Mathf.Abs(AgmTBusHuntRadius.Value - 20000f) < 1f)
-                AgmTBusHuntRadius.Value = 35000f;
-            AgmTEjectSpeed = cfg.Bind("AGM-T", "EjectSpeed", 45f, "Lateral eject speed added to each GS25 (m/s).");
-            AgmTNukeYield = cfg.Bind("AGM-T", "NukeYield", 1500000f,
+            AgmTEjectSpeed = config.Bind("AGM-T", "EjectSpeed", 45f, "Lateral eject speed added to each GS25 (m/s).");
+            AgmTNukeYield = config.Bind("AGM-T", "NukeYield", 1500000f,
                 "1.5kt variant base blast yield (1500000 = 1.5kt). Effective = NukeYield * NukeBlastScale.");
-            AgmTNukeBlastScale = cfg.Bind("AGM-T", "NukeBlastScale", 0.45f,
+            AgmTNukeBlastScale = config.Bind("AGM-T", "NukeBlastScale", 0.45f,
                 "ACNM-118 shockwave/blast scale vs NukeYield (0.45 → ~0.675kt effective, smaller radius).");
-            AgmTNukeMinTargetValueM = cfg.Bind("AGM-T", "NukeMinTargetValueM", 25f,
+            AgmTNukeMinTargetValueM = config.Bind("AGM-T", "NukeMinTargetValueM", 25f,
                 "ACNM-118 seeker: skip units with UnitDefinition.value below this (millions; 25 = 25M).");
-            AgmTNukeProximityM = cfg.Bind("AGM-T", "NukeProximityM", 500f,
+            AgmTNukeProximityM = config.Bind("AGM-T", "NukeProximityM", 500f,
                 "ACNM-118: nuclear detonation only within this range of intended target (m). Else fizzle SD.");
-            AgmTNukeArmMinFlightTime = cfg.Bind("AGM-T", "NukeArmMinFlightTime", 6f,
+            AgmTNukeArmMinFlightTime = config.Bind("AGM-T", "NukeArmMinFlightTime", 6f,
                 "ACNM-118: seconds after spawn before nuclear warhead can arm (blocks launch terrain nuke).");
-            AgmTNukeArmMinDistance = cfg.Bind("AGM-T", "NukeArmMinDistance", 2000f,
+            AgmTNukeArmMinDistance = config.Bind("AGM-T", "NukeArmMinDistance", 2000f,
                 "ACNM-118: meters from spawn before nuclear warhead can arm.");
-            AgmTDragScale = cfg.Bind("AGM-T", "DragScale", 0.55f,
+            AgmTDragScale = config.Bind("AGM-T", "DragScale", 0.55f,
                 "ACM-119 / ACNM-118 / GS25 dragCurve + supersonicDrag multiplier (<1 = less drag).");
-            AgmTGs25Thrust = cfg.Bind("AGM-T", "Gs25Thrust", 22000f,
+            AgmTGs25Thrust = config.Bind("AGM-T", "Gs25Thrust", 22000f,
                 "Synthetic GS25 motor thrust (N). Vanilla GS25 has no motors.");
-            AgmTGs25BurnTime = cfg.Bind("AGM-T", "Gs25BurnTime", 42f,
+            AgmTGs25BurnTime = config.Bind("AGM-T", "Gs25BurnTime", 42f,
                 "GS25 burn duration (s) for ~35km high-thrust cruise.");
-            AgmTGs25MaxRange = cfg.Bind("AGM-T", "Gs25MaxRange", 35000f,
+            AgmTGs25MaxRange = config.Bind("AGM-T", "Gs25MaxRange", 35000f,
                 "GS25 powered range cap (m). Thrust cuts off past this.");
-            AgmTSubNukeImmune = cfg.Bind("AGM-T", "SubNukeImmune", true,
+            AgmTSubNukeImmune = config.Bind("AGM-T", "SubNukeImmune", true,
                 "GS25 submunitions ignore nuclear shockwave push and blast damage (no tumble / no sympathetic detonation).");
-            AgmTBusCustomVisual = cfg.Bind("AGM-T", "BusCustomVisual", true,
+            AgmTBusCustomVisual = config.Bind("AGM-T", "BusCustomVisual", true,
                 "Replace ACM-119 / ACNM-118 bus mesh with AAM-IV (WeXonAssets/). GS25 unchanged.");
-            AgmTBusVisualScale = cfg.Bind("AGM-T", "BusVisualScale", 1f,
+            AgmTBusVisualScale = config.Bind("AGM-T", "BusVisualScale", 1f,
                 "AAM-IV visual uniform scale.");
-            AgmTBusVisualEuler = cfg.Bind("AGM-T", "BusVisualEuler", "0,0,0",
+            AgmTBusVisualEuler = config.Bind("AGM-T", "BusVisualEuler", "0,0,0",
                 "AAM-IV local euler degrees (x,y,z).");
-            AgmTBusVisualOffset = cfg.Bind("AGM-T", "BusVisualOffset", "0,0,0",
-                "Extra AAM-IV offset on top of auto hang-align (x,y,z).");
+            AgmTBusVisualOffset = config.Bind("AGM-T", "BusVisualOffset", "0,0,0",
+                "AAM-IV local position offset (x,y,z).");
             // Migrate older installs that used sub-5s dispense
             if (AgmTMinFlightTime.Value < 5f)
                 AgmTMinFlightTime.Value = 5f;
@@ -492,15 +341,15 @@ namespace WeXon
                 AgmTSearchRadius.Value = 35000f;
 
             // Game scale: vanilla ~20kt = 20000000 �?10kt = 10000000
-            BlastYield = cfg.Bind("Nuke", "BlastYield", 10000000f, "Nuclear blast yield. 10000000 �?10kt.");
-            PierceDamage = cfg.Bind("Nuke", "PierceDamage", -1f, ">=0 overwrites pierceDamage; -1 keep.");
-            SetNuclearFlag = cfg.Bind("Nuke", "SetNuclearFlag", true, "WeaponInfo.nuclear = true on nuke variants");
-            SetStrategicFlag = cfg.Bind("Nuke", "SetStrategicFlag", false, "WeaponInfo.strategic = true on nuke variants");
-            SwapExplosionFx = cfg.Bind("Nuke", "SwapExplosionFx", true, "Swap warhead FX to nuclear explosion prefab");
-            ExplosionFxName = cfg.Bind("Nuke", "ExplosionFxName", "explosion_20kt",
+            BlastYield = config.Bind("Nuke", "BlastYield", 10000000f, "Nuclear blast yield. 10000000 �?10kt.");
+            PierceDamage = config.Bind("Nuke", "PierceDamage", -1f, ">=0 overwrites pierceDamage; -1 keep.");
+            SetNuclearFlag = config.Bind("Nuke", "SetNuclearFlag", true, "WeaponInfo.nuclear = true on nuke variants");
+            SetStrategicFlag = config.Bind("Nuke", "SetStrategicFlag", false, "WeaponInfo.strategic = true on nuke variants");
+            SwapExplosionFx = config.Bind("Nuke", "SwapExplosionFx", true, "Swap warhead FX to nuclear explosion prefab");
+            ExplosionFxName = config.Bind("Nuke", "ExplosionFxName", "explosion_20kt",
                 "Nuke FX prefab name (game has explosion_20kt; yield is still 10kt).");
-            NukeLabelNames = cfg.Bind("Nuke", "LabelNames", true, "Append nuke tag to nuke-variant names");
-            NukeNameTag = cfg.Bind("Nuke", "NameTag", "[10kt]", "ASCII only");
+            NukeLabelNames = config.Bind("Nuke", "LabelNames", true, "Append nuke tag to nuke-variant names");
+            NukeNameTag = config.Bind("Nuke", "NameTag", "[10kt]", "ASCII only");
 
             // Migrate old 20kt defaults from previous installs
             if (Mathf.Abs(BlastYield.Value - 20000000f) < 1f)
@@ -508,142 +357,104 @@ namespace WeXon
             if (string.Equals(NukeNameTag.Value, "[20kt]", StringComparison.OrdinalIgnoreCase))
                 NukeNameTag.Value = "[10kt]";
 
-            TerminalRange = cfg.Bind("MultiMode", "TerminalRange", 8000f, "Range (m) for terminal g-boost");
-            SecondaryPrefer = cfg.Bind("MultiMode", "SecondaryPrefer", "Auto", "Auto | ARH | IR | SARH (only if EnableSecondarySeeker)");
-            EnableSecondarySeeker = cfg.Bind("MultiMode", "EnableSecondarySeeker", false,
+            TerminalRange = config.Bind("MultiMode", "TerminalRange", 8000f, "Range (m) for terminal g-boost");
+            SecondaryPrefer = config.Bind("MultiMode", "SecondaryPrefer", "Auto", "Auto | ARH | IR | SARH (only if EnableSecondarySeeker)");
+            EnableSecondarySeeker = config.Bind("MultiMode", "EnableSecondarySeeker", false,
                 "OFF by default: AddComponent ARH/IR secondary caused Seek() NREs and aimless/self-destruct missiles.");
-            TerminalGLimit = cfg.Bind("MultiMode", "TerminalGLimit", 40f, "0 = do not change gLimit");
-            TerminalBoostAmount = cfg.Bind("MultiMode", "TerminalBoostAmount", 0.35f, "0 = skip ApplyTerminalBoost");
-            AllowFreeAttack = cfg.Bind("MultiMode", "AllowFreeAttack", true,
+            TerminalGLimit = config.Bind("MultiMode", "TerminalGLimit", 40f, "0 = do not change gLimit");
+            TerminalBoostAmount = config.Bind("MultiMode", "TerminalBoostAmount", 0.35f, "0 = skip ApplyTerminalBoost");
+            AllowFreeAttack = config.Bind("MultiMode", "AllowFreeAttack", true,
                 "No-lock / lost-lock autonomous hunt for nearest hostile.");
-            ConfigEntry<bool> loalHuntRestored = cfg.Bind("MultiMode", "LoalHuntRestored193", false,
-                "Internal: one-shot restore aircraft LOAL (multi-mode + free-hunt) after 193.");
-            if (!loalHuntRestored.Value)
-            {
-                EnableMultiMode.Value = true;
-                EnableOpticalMultiMode.Value = true;
-                AllowFreeAttack.Value = true;
-                if (VanillaMissileBackup != null)
-                    VanillaMissileBackup.Value = false;
-                loalHuntRestored.Value = true;
-            }
-            EnergyAwareGuide = cfg.Bind("MultiMode", "EnergyAwareGuide", true,
-                "Limit retarget / re-lock turn rate by airspeed so missiles do not stall. Player sticky locks also clamp.");
-            SoftRetargetSeconds = cfg.Bind("MultiMode", "SoftRetargetSeconds", 2.5f,
-                "After a lock change or re-lock, keep turns gentler for this many seconds (player sticky capped ~1.25s).");
-            MinGuideSpeedMps = cfg.Bind("MultiMode", "MinGuideSpeedMps", 90f,
+            EnergyAwareGuide = config.Bind("MultiMode", "EnergyAwareGuide", true,
+                "Limit retarget turn rate by airspeed so missiles do not stall and hang motionless.");
+            SoftRetargetSeconds = config.Bind("MultiMode", "SoftRetargetSeconds", 2.5f,
+                "After a lock change, keep turns gentler for this many seconds.");
+            MinGuideSpeedMps = config.Bind("MultiMode", "MinGuideSpeedMps", 90f,
                 "Below this speed (m/s), command forward coast with a mild loft instead of hard turns.");
-            MadModeSearchRadius = cfg.Bind("MultiMode", "MadModeSearchRadius", 35000f, "Free-hunt search radius (m)");
-            MadModeSearchAngle = cfg.Bind("MultiMode", "MadModeSearchAngle", 360f,
+            MadModeSearchRadius = config.Bind("MultiMode", "MadModeSearchRadius", 35000f, "Free-hunt search radius (m)");
+            MadModeSearchAngle = config.Bind("MultiMode", "MadModeSearchAngle", 110f,
                 "Nose FOV half-angle (deg). 360 = nearest enemy in full sphere.");
-            if (MadModeSearchRadius.Value < 25000f)
-                MadModeSearchRadius.Value = 35000f;
-            if (MadModeSearchAngle.Value < 179f)
-                MadModeSearchAngle.Value = 360f;
-            MadModeSearchInterval = cfg.Bind("MultiMode", "MadModeSearchInterval", 0.5f,
+            MadModeSearchInterval = config.Bind("MultiMode", "MadModeSearchInterval", 0.5f,
                 "Seconds between free-hunt scans (lower = heavier CPU).");
             if (MadModeSearchInterval.Value < 0.25f)
                 MadModeSearchInterval.Value = 0.25f;
-            TbmHuntRadius = cfg.Bind("MultiMode", "TbmHuntRadius", 60000f,
+            // 261C: full-sphere LOAL (360) picked rear/side targets → missile stall.
+            if (MadModeSearchAngle != null && MadModeSearchAngle.Value >= 350f)
+                MadModeSearchAngle.Value = 110f;
+            TbmHuntRadius = config.Bind("MultiMode", "TbmHuntRadius", 60000f,
                 "Piledriver TBM free-hunt radius (m). Larger than MadModeSearchRadius; does not use MultiMode steering.");
-            MmLabelNames = cfg.Bind("MultiMode", "LabelNames", false,
+            MmLabelNames = config.Bind("MultiMode", "LabelNames", false,
                 "Deprecated: do not use [MM]. Names use [IAL] only; nukes also get [10kt].");
-            MmNameTag = cfg.Bind("MultiMode", "NameTag", "[MM]", "Unused �?kept for old configs");
+            MmNameTag = config.Bind("MultiMode", "NameTag", "[MM]", "Unused �?kept for old configs");
             if (MmLabelNames.Value)
                 MmLabelNames.Value = false;
 
-            EnableLowSpeedSelfDestruct = cfg.Bind("Missile", "EnableLowSpeedSelfDestruct", true,
+            EnableLowSpeedSelfDestruct = config.Bind("Missile", "EnableLowSpeedSelfDestruct", true,
                 "Detonate missiles that fall too slow (dud / energy-spent) instead of inert ground impact.");
             // Threshold stored as km/h (user request). Converted to m/s at runtime (/3.6).
-            LowSpeedSelfDestructMps = cfg.Bind("Missile", "LowSpeedSelfDestructKmh", 15f,
+            LowSpeedSelfDestructMps = config.Bind("Missile", "LowSpeedSelfDestructKmh", 15f,
                 "Speed threshold (km/h). Below this for Hold seconds �?self-destruct. Default 15 km/h.");
             // Migrate previous m/s default (55) �?15 km/h
             if (Mathf.Abs(LowSpeedSelfDestructMps.Value - 55f) < 0.05f)
                 LowSpeedSelfDestructMps.Value = 15f;
-            LowSpeedSelfDestructMinAge = cfg.Bind("Missile", "LowSpeedSelfDestructMinAge", 3.5f,
+            LowSpeedSelfDestructMinAge = config.Bind("Missile", "LowSpeedSelfDestructMinAge", 3.5f,
                 "Minimum flight time (s) before low-speed SD can arm (avoids launch tip-off).");
-            LowSpeedSelfDestructHold = cfg.Bind("Missile", "LowSpeedSelfDestructHold", 0.85f,
+            LowSpeedSelfDestructHold = config.Bind("Missile", "LowSpeedSelfDestructHold", 0.85f,
                 "Must stay below speed threshold this long (s) before detonating.");
-            LowSpeedSelfDestructBallisticMinAge = cfg.Bind("Missile", "LowSpeedSelfDestructBallisticMinAge", 12f,
+            LowSpeedSelfDestructBallisticMinAge = config.Bind("Missile", "LowSpeedSelfDestructBallisticMinAge", 12f,
                 "Extra min age for ballistic/TBM so apogee coast does not false-trigger.");
-            ShipMissileMinLaunchMps = cfg.Bind("Missile", "ShipMissileMinLaunchMps", 140f,
-                "Ship rail launches: boost along nose if slower than this (m/s). Skipped for VLS/SARH (RAM-45).");
+            ShipMissileMinLaunchMps = config.Bind("Missile", "ShipMissileMinLaunchMps", 140f,
+                "Ship/VLS soft launches (e.g. RAM45): boost along nose if slower than this (m/s).");
 
-            EnableYieldProximityFuze = cfg.Bind("Missile", "EnableYieldProximityFuze", true,
+            EnableYieldProximityFuze = config.Bind("Missile", "EnableYieldProximityFuze", true,
                 "Proximity fuze range from warhead blastYield (cube-root). Wires ProxyFuse only; no seeker/steer patches.");
-            ProximityRefYield = cfg.Bind("Missile", "ProximityRefYield", 25f,
+            ProximityRefYield = config.Bind("Missile", "ProximityRefYield", 25f,
                 "Reference blastYield for the proximity formula (typical conventional HE).");
-            ProximityRefRangeM = cfg.Bind("Missile", "ProximityRefRangeM", 30f,
+            ProximityRefRangeM = config.Bind("Missile", "ProximityRefRangeM", 30f,
                 "Proximity trigger range (m) at ProximityRefYield.");
-            ProximityScale = cfg.Bind("Missile", "ProximityScale", 1f,
+            ProximityScale = config.Bind("Missile", "ProximityScale", 1f,
                 "Extra multiplier on yield-scaled proximity range.");
-            ProximityMinM = cfg.Bind("Missile", "ProximityMinM", 8f,
+            ProximityMinM = config.Bind("Missile", "ProximityMinM", 8f,
                 "Minimum proximity trigger range (m).");
-            ProximityMaxM = cfg.Bind("Missile", "ProximityMaxM", 250f,
+            ProximityMaxM = config.Bind("Missile", "ProximityMaxM", 250f,
                 "Maximum proximity trigger range (m). Nukes clamp here; ACNM nuclear gate stays separate.");
-            ProximityMinAge = cfg.Bind("Missile", "ProximityMinAge", 0.4f,
+            ProximityMinAge = config.Bind("Missile", "ProximityMinAge", 0.4f,
                 "Minimum flight time (s) before yield proximity can arm (stack with warhead IsArmed).");
-            ProximityRequireClosing = cfg.Bind("Missile", "ProximityRequireClosing", true,
+            ProximityRequireClosing = config.Bind("Missile", "ProximityRequireClosing", true,
                 "Require CPA-pass / closing geometry (vanilla ProxyFuse style) before detonating.");
 
-            EnableMissileOverpen = cfg.Bind("Missile", "EnableOverpen", true,
-                "When a missile flies through a unit without exploding, apply kinetic damage and optionally overpenetrate.");
-            OverpenKineticScale = cfg.Bind("Missile", "OverpenKineticScale", 8f,
-                "Kinetic impact = massKg * speedMps * scale. Direct hits on aircraft should be lethal.");
-            OverpenSphereRadius = cfg.Bind("Missile", "OverpenSphereRadius", 3.5f,
-                "Sphere-cast radius (m) so thin airframes are not tunneled through.");
-            OverpenMaxHits = cfg.Bind("Missile", "OverpenMaxHits", 2,
-                "Max overpens before the warhead detonates (armed missiles).");
-            OverpenSpeedKeep = cfg.Bind("Missile", "OverpenSpeedKeep", 0.65f,
-                "Speed kept after each overpen (0-1).");
-            OverpenMinAge = cfg.Bind("Missile", "OverpenMinAge", 0.35f,
-                "Ignore hits this many seconds after spawn (avoid striking the shooter).");
-
-            IalLabelNames = cfg.Bind("IAL", "LabelNames", true,
-                "Append [IAL] on dual-mode guided missiles (ex-[MM]) and their [10kt] nuke twins.");
-            IalNameTag = cfg.Bind("IAL", "NameTag", "[IAL]", "Dual-mode / seeker branding; nukes also get [10kt]");
-            EnableEncyclopediaPages = cfg.Bind("IAL", "EncyclopediaPages", true,
+            IalLabelNames = config.Bind("IAL", "LabelNames", true, "Append [IAL] on IAL / nuke variants");
+            IalNameTag = config.Bind("IAL", "NameTag", "[IAL]", "Only mod suffix besides [10kt] on nukes");
+            EnableEncyclopediaPages = config.Bind("IAL", "EncyclopediaPages", true,
                 "Add encyclopedia missile + mount entries for IAL / nuke variants");
-            BlockIalOnShips = cfg.Bind("IAL", "BlockIalOnShips", true,
+            BlockIalOnShips = config.Bind("IAL", "BlockIalOnShips", true,
                 "Naval ships cannot select or fire IAL / [10kt] missile variants.");
-            AiNukeChance = cfg.Bind("IAL", "AiNukeChance", 0.15f,
-                "Chance (0-1) AI keeps IAL [10kt] (no warhead stock cost). Independent of warheadsAvailable.");
-            IalHalfBlastRange = cfg.Bind("IAL", "HalfBlastRange", true,
+            AiNukeChance = config.Bind("IAL", "AiNukeChance", 0.15f,
+                "Chance (0-1) that AI PreferNukesFilter keeps nuclear / IAL options. ~0.15 = 15%.");
+            IalHalfBlastRange = config.Bind("IAL", "HalfBlastRange", true,
                 "IAL nuclear warheads use half BlastYield (half shockwave range).");
-            BlockFriendlySetTarget = cfg.Bind("IFF", "BlockFriendlySetTarget", true,
+            BlockFriendlySetTarget = config.Bind("IFF", "BlockFriendlySetTarget", true,
                 "Harmony-block Missile.SetTarget when target is friendly.");
 
-            AffectAllMissiles = cfg.Bind("Filter", "AffectAllMissiles", true, "MM/IFF/nuke-clone apply to all missiles");
-            MissileNameWhitelist = cfg.Bind("Filter", "MissileNameWhitelist", "AAM,SAM,AGM,Missile,Cruise",
+            AffectAllMissiles = config.Bind("Filter", "AffectAllMissiles", true, "MM/IFF/nuke-clone apply to all missiles");
+            MissileNameWhitelist = config.Bind("Filter", "MissileNameWhitelist", "AAM,SAM,AGM,Missile,Cruise",
                 "Used when AffectAllMissiles=false");
-            MountBlacklist = cfg.Bind("Unrestricted", "MountBlacklist",
+            MountBlacklist = config.Bind("Unrestricted", "MountBlacklist",
                 "afv,lcv,hlt,container,hook,flex,turret",
                 "Comma substrings excluded from any-hardpoint list.");
-            DebugLog = cfg.Bind("General", "DebugLog", false, "Verbose logging");
-            StrategicArsenal.Bind(cfg);
-            KillAccolades.Bind(cfg);
-            PlayerCareer.Bind(cfg);
-            FlightAnalysis.Bind(cfg);
-            FriendlyKillHud.Bind(cfg);
-            MatchScoreboard.Bind(cfg);
+            DebugLog = config.Bind("General", "DebugLog", false, "Verbose logging");
+            BindOverpen(config);
+            StrategicArsenal.Bind(config);
+            KillAccolades.Bind(config);
+            PlayerCareer.Bind(config);
+            FlightAnalysis.Bind(config);
+            FriendlyKillHud.Bind(config);
+            MatchScoreboard.Bind(config);
 
-            // Combined pack: share Oritasy Harmony id so probes do not list WeXon as a second plugin.
-            Harmony harmony;
-#if ORITASY_COMBINED
-            harmony = Oritasy.Plugin.SharedHarmony;
-            if (harmony == null)
-                harmony = new Harmony(Oritasy.PluginInfo.GUID);
-#else
-            harmony = new Harmony(PluginInfo.GUID);
-#endif
-            PatchOwnNamespace(harmony);
-            _initDone = true;
+            // Only patch this namespace �?safe when compiled into combined Oritasy.dll
+            PatchOwnNamespace(new Harmony(PluginInfo.GUID));
             Log.LogInfo(PluginInfo.Name + " v" + PluginInfo.Version
-                + " loaded (vanilla + nuke variants, MM, AGM-T, F9 arsenal, career menu)"
-#if ORITASY_COMBINED
-                + " [Harmony " + Oritasy.PluginInfo.GUID + "]"
-#endif
-                + ".");
+                + " loaded (vanilla + nuke variants, MM, AGM-T, F9 arsenal, career menu).");
         }
 
         internal static bool IsVeyrnAcmPluginPresent()
@@ -651,8 +462,7 @@ namespace WeXon
             try
             {
                 if (Chainloader.PluginInfos != null
-                    && (Chainloader.PluginInfos.ContainsKey("com.qiaochen.veyrnacm")
-                        || Chainloader.PluginInfos.ContainsKey("com.iallemege.veyrnacm")))
+                    && Chainloader.PluginInfos.ContainsKey("com.qiaochen.veyrnacm"))
                     return true;
             }
             catch { }
@@ -675,17 +485,18 @@ namespace WeXon
 
         internal static bool AgmTOwnedByWeXon()
         {
-            // Always owned by WeXon/Oritasy �?VeyrnAcm.dll is retired.
+#if ORITASY_COMBINED
+            // VeyrnWeapons.dll is the standalone pack for ACM-119 / ACNM-118 / AAM-2CV / TGM-85.
+            return false;
+#else
             return EnableAgmT != null && EnableAgmT.Value;
+#endif
         }
-
-        private static bool _harmonyApplied;
 
         internal static void PatchOwnNamespace(Harmony harmony)
         {
-            if (harmony == null || _harmonyApplied)
+            if (harmony == null)
                 return;
-            _harmonyApplied = true;
             Assembly asm = Assembly.GetExecutingAssembly();
             string ns = typeof(Plugin).Namespace;
             Type[] types = asm.GetTypes();
@@ -696,34 +507,107 @@ namespace WeXon
                     continue;
                 if (t.Namespace == null || t.Namespace != ns)
                     continue;
+                if (!HarmonyOriginalsExist(t))
+                    continue;
                 try { harmony.CreateClassProcessor(t).Patch(); }
                 catch (Exception ex)
                 {
-                    if (DebugLog != null && DebugLog.Value)
+                    if (Log != null)
                         Log.LogWarning("Harmony patch " + t.Name + ": " + ex.Message);
                 }
             }
         }
 
-        internal static void HostedTick()
+        /// <summary>
+        /// HarmonyX native-crashes when a HarmonyPatch argument list matches no game method.
+        /// </summary>
+        private static bool HarmonyOriginalsExist(Type t)
         {
-            if (!_initDone)
-                return;
+            if (t == null)
+                return false;
             try
             {
-#if ORITASY_COMBINED
-                if (Oritasy.PerfProbeService.Sampling)
-                    Oritasy.PerfProbeService.Measure("WeXon.Update", RunUpdateBody);
-                else
-                    RunUpdateBody();
-#else
-                RunUpdateBody();
-#endif
+                MethodInfo tm = t.GetMethod("TargetMethod",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                    null, Type.EmptyTypes, null);
+                if (tm != null)
+                {
+                    object mb = tm.Invoke(null, null);
+                    if (mb == null)
+                    {
+                        if (Log != null)
+                            Log.LogWarning("Skip Harmony " + t.Name + ": TargetMethod=null");
+                        return false;
+                    }
+                }
+
+                Type classDt = null;
+                object[] classAttrs = t.GetCustomAttributes(typeof(HarmonyPatch), true);
+                if (classAttrs != null)
+                {
+                    for (int i = 0; i < classAttrs.Length; i++)
+                    {
+                        HarmonyPatch hp = classAttrs[i] as HarmonyPatch;
+                        if (hp != null && hp.info != null && hp.info.declaringType != null)
+                            classDt = hp.info.declaringType;
+                    }
+                }
+                if (classAttrs != null)
+                {
+                    string classMn = null;
+                    Type[] classArgs = null;
+                    for (int i = 0; i < classAttrs.Length; i++)
+                    {
+                        HarmonyPatch hp = classAttrs[i] as HarmonyPatch;
+                        if (hp == null || hp.info == null)
+                            continue;
+                        if (!string.IsNullOrEmpty(hp.info.methodName))
+                            classMn = hp.info.methodName;
+                        if (hp.info.argumentTypes != null && hp.info.argumentTypes.Length > 0)
+                            classArgs = hp.info.argumentTypes;
+                    }
+                    if (classDt != null && !string.IsNullOrEmpty(classMn)
+                        && classArgs != null && AccessTools.Method(classDt, classMn, classArgs) == null)
+                    {
+                        if (Log != null)
+                            Log.LogWarning("Skip Harmony " + t.Name + ": missing "
+                                + classDt.Name + "." + classMn + " (" + classArgs.Length + " args)");
+                        return false;
+                    }
+                }
+                MethodInfo[] methods = t.GetMethods(
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                for (int m = 0; m < methods.Length; m++)
+                {
+                    object[] attrs = methods[m].GetCustomAttributes(typeof(HarmonyPatch), true);
+                    if (attrs == null)
+                        continue;
+                    for (int a = 0; a < attrs.Length; a++)
+                    {
+                        HarmonyPatch hp = attrs[a] as HarmonyPatch;
+                        if (hp == null || hp.info == null)
+                            continue;
+                        Type dt = hp.info.declaringType != null ? hp.info.declaringType : classDt;
+                        string mn = hp.info.methodName;
+                        Type[] args = hp.info.argumentTypes;
+                        if (dt == null || string.IsNullOrEmpty(mn) || args == null || args.Length == 0)
+                            continue;
+                        if (AccessTools.Method(dt, mn, args) == null)
+                        {
+                            if (Log != null)
+                                Log.LogWarning("Skip Harmony " + t.Name + ": missing "
+                                    + dt.Name + "." + mn + " (" + args.Length + " args)");
+                            return false;
+                        }
+                    }
+                }
+                return true;
             }
             catch (Exception ex)
             {
                 if (Log != null)
-                    Log.LogWarning("WeXon tick: " + ex.Message);
+                    Log.LogWarning("Skip Harmony " + t.Name + ": " + ex.Message);
+                return false;
             }
         }
 
@@ -736,30 +620,31 @@ namespace WeXon
 #endif
         }
 
-        private static void RunUpdateBody()
+        internal static void RunUpdateBody()
         {
-#if ORITASY_COMBINED
-            Oritasy.PerfFrameGate.BeginFrame();
-            bool recover = Oritasy.PerfFrameGate.Recovering;
-#else
-            bool recover = false;
-#endif
+            if (!_wexonInitDone)
+                return;
+            if (OritasyMenuIdle())
+            {
+                PlayerCareer.Tick();
+                return;
+            }
             if (!_scannedAssets)
             {
                 _scannedAssets = true;
                 ScanLoadedWeaponAssets();
             }
 
-            // Nuke FX resolve is expensive (FindObjectsOfTypeAll GameObject) — retry slowly
-            if (!recover && EnableNukeVariants.Value && SwapExplosionFx.Value && CachedNukeFx == null
+            // Nuke FX resolve is expensive (FindObjectsOfTypeAll GameObject) �?retry slowly
+            if (EnableNukeVariants.Value && SwapExplosionFx.Value && CachedNukeFx == null
                 && Time.unscaledTime >= _nextNukeFxRetry)
             {
                 _nextNukeFxRetry = Time.unscaledTime + 5f;
                 ResolveNukeFx(false);
             }
 
-            // Nuke mount clone scan is FindObjectsOfTypeAll — never every frame
-            if (!recover && EnableNukeVariants.Value && !NukeMountsInjected
+            // Nuke mount clone scan is FindObjectsOfTypeAll �?never every frame
+            if (EnableNukeVariants.Value && !NukeMountsInjected
                 && Time.unscaledTime >= _nextNukeMountRetry)
             {
                 _nextNukeMountRetry = Time.unscaledTime + 3f;
@@ -767,53 +652,38 @@ namespace WeXon
             }
 
             // AGM-T: inject + rare maintenance (injected path must not hammer FindObjectsOfTypeAll)
-            if (!recover && AgmTOwnedByWeXon() && Time.unscaledTime >= _nextAgmTRetry)
+            if (AgmTOwnedByWeXon() && Time.unscaledTime >= _nextAgmTRetry)
             {
-                _nextAgmTRetry = Time.unscaledTime
-                    + (AgmTWeapon.IsInjected && AgmTWeapon.HasUsableClones() ? 90f : 2f);
+                _nextAgmTRetry = Time.unscaledTime + (AgmTWeapon.IsInjected ? 90f : 2f);
                 AgmTWeapon.Ensure();
             }
 
-            // AAM-2CV: AAM-36 clone + ACM-119 bus mesh; independent of EnableAgmT
-            if (!recover && Time.unscaledTime >= _nextAam2CvRetry)
-            {
-                _nextAam2CvRetry = Time.unscaledTime
-                    + (Aam2CvWeapon.IsInjected && Aam2CvWeapon.HasUsableClones() ? 90f : 2f);
-                Aam2CvWeapon.Ensure();
-            }
-
-            // F9 menu hotkey must run every frame (GetKeyDown is one-frame only).
-            StrategicArsenal.Tick();
-            if (!recover && FlightAnalysis.OwnsRecording)
-                FlightAnalysis.Tick();
-            // Overlay HUD ticks always — skipping them flickered kill/career UI.
-            // Packed payload MBs may not receive Unity Update; pump LOAL here.
-            MultiModeBrain.PumpAll();
-            TbmHuntAssist.PumpAll();
-            AgmTDispenser.PumpAll();
-            AgmTSubBrain.PumpAll();
+            // LowEnd: stagger non-critical WeXon ticks (FlightAnalysis keeps own SampleHz).
+            bool lowEnd = CachedOritasyIsLow();
             int frame = Time.frameCount;
-            if ((frame % 2) == 1)
+            if (!lowEnd || (frame % 2) == 0)
+                StrategicArsenal.Tick();
+            if (!lowEnd || (frame % 2) == 0)
                 KillAccolades.Tick();
-            if ((frame % 2) == 0)
-            {
+            if (!lowEnd || (frame % 2) == 1)
                 PlayerCareer.Tick();
-            }
-            if ((frame % 3) == 1)
+            if (!lowEnd)
+                FlightAnalysis.Tick();
+            if (!lowEnd || (frame % 4) == 1)
                 FriendlyKillHud.Tick();
-            if ((frame % 3) == 2)
+            if (!lowEnd || (frame % 4) == 3)
                 MatchScoreboard.Tick();
 
             // Mount cache: only refresh when empty, or rarely for late-loaded assets
-            if (!recover && UnrestrictedFeatureOn() && Time.unscaledTime >= NextMountRefresh)
+            if (EnableUnrestricted.Value && Time.unscaledTime >= NextMountRefresh)
             {
                 NextMountRefresh = Time.unscaledTime + 90f;
                 if (CachedMounts.Count == 0)
                     RefreshMountCache();
             }
 
-            // Encyclopedia brand once (was every frame — major hitch)
-            if (!recover && EnableEncyclopediaPages.Value && !_encyclopediaReady
+            // Encyclopedia brand once (was every frame �?major hitch)
+            if (EnableEncyclopediaPages.Value && !_encyclopediaReady
                 && Time.unscaledTime >= _nextEncyclopediaRetry)
             {
                 _nextEncyclopediaRetry = Time.unscaledTime + 3f;
@@ -826,188 +696,111 @@ namespace WeXon
             }
         }
 
-        private static bool _perfIsLowResolved;
-        private static bool _perfIsLow;
-        private static PropertyInfo _perfIsLowProp;
-
-        private static bool CachedPerfIsLow()
-        {
-            if (!_perfIsLowResolved)
-            {
-                _perfIsLowResolved = true;
-                try
-                {
-                    Type perf = Type.GetType("Oritasy.PerfMode");
-                    if (perf != null)
-                    {
-                        _perfIsLowProp = perf.GetProperty("IsLow",
-                            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                    }
-                }
-                catch { }
-            }
-            if (_perfIsLowProp == null)
-                return false;
-            try
-            {
-                object v = _perfIsLowProp.GetValue(null, null);
-                _perfIsLow = v is bool && (bool)v;
-            }
-            catch { }
-            return _perfIsLow;
-        }
-
-        private static int _huntQueryFrame = -1;
-        private static int _huntQueryUsed;
-
-        /// <summary>Grid hunts per frame. Never hitch-gated — LOAL lock is gameplay.</summary>
-        internal static bool TryConsumeHuntQuery()
-        {
-            int f = Time.frameCount;
-            if (_huntQueryFrame != f)
-            {
-                _huntQueryFrame = f;
-                _huntQueryUsed = 0;
-            }
-            // Packed LOAL: 16 / 32 hunts per frame so salvos still acquire.
-            int cap = CachedPerfIsLow() ? 16 : 32;
-            if (_huntQueryUsed >= cap)
-                return false;
-            _huntQueryUsed++;
-            return true;
-        }
-
-        /// <summary>Config floor for free-hunt (default 35 km). Per-missile hunt uses the overload.</summary>
-        internal static float EffectiveHuntRadius()
-        {
-            float want = MadModeSearchRadius != null ? MadModeSearchRadius.Value : HuntRangeGateService.FloorM;
-            if (want < 800f)
-                want = 800f;
-            return want;
-        }
-
-        /// <summary>Hunt radius longer than this missile's own range (min config floor, else range * 1.25).</summary>
-        internal static float EffectiveHuntRadius(Missile missile)
-        {
-            return HuntRangeGateService.ResolveHuntRadiusM(
-                EffectiveHuntRadius(),
-                EstimateMissileRangeM(missile));
-        }
-
-        internal static float EstimateMissileRangeM(Missile missile)
-        {
-            if (missile == null)
-                return HuntRangeGateService.FloorM;
-            float range = 0f;
-            try
-            {
-                if (Aam2CvWeapon.IsAam2CvMissile(missile))
-                    range = Mathf.Max(range, Aam2CvGateService.RangeM);
-            }
-            catch { }
-            try
-            {
-                if (AgmTWeapon.IsPoweredGs25Sub(missile))
-                {
-                    float gs = AgmTGs25MaxRange != null ? AgmTGs25MaxRange.Value : HuntRangeGateService.FloorM;
-                    range = Mathf.Max(range, gs);
-                }
-                if (AgmTWeapon.HasBusDispenser(missile))
-                    range = Mathf.Max(range, HuntRangeGateService.FloorM);
-            }
-            catch { }
-
-            float infoMax = 0f;
-            WeaponInfo info = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
-            if (info != null && info.maxSpeed > 10f)
-                infoMax = info.maxSpeed;
-
-            float top = 0f;
-            try { top = missile.GetTopSpeed(0f, 0f); }
-            catch { }
-
-            bool cruise = false;
-            bool ballistic = false;
-            bool kh85 = false;
-            try { cruise = IsCruiseMissile(missile); }
-            catch { }
-            try { ballistic = IsBallisticMissile(missile); }
-            catch { }
-            try { kh85 = IsKh85Family(missile); }
-            catch { }
-
-            float fallback = cruise || kh85
-                ? HuntRangeGateService.DefaultCruiseSpeedMps
-                : HuntRangeGateService.DefaultSpeedMps;
-            float spd = HuntRangeGateService.PickSpeedMps(infoMax, top, fallback);
-
-            float burn = 0f;
-            try { burn = missile.GetTotalBurnTime(); }
-            catch { }
-            float kin = HuntRangeGateService.KinematicRangeM(burn, spd);
-            if (kin > range)
-                range = kin;
-
-            if (cruise || kh85)
-                range = Mathf.Max(range, HuntRangeGateService.CruiseClassMinRangeM);
-            if (ballistic)
-                range = Mathf.Max(range, HuntRangeGateService.BallisticClassMinRangeM);
-            if (range < 1f)
-                range = HuntRangeGateService.FloorM;
-            return range;
-        }
-
-        internal static float EffectiveHuntInterval()
-        {
-            float want = MadModeSearchInterval != null ? MadModeSearchInterval.Value : 0.5f;
-            float min = 0.5f;
-            if (want < min)
-                want = min;
-            return want;
-        }
-
         private void OnGUI()
         {
 #if ORITASY_COMBINED
-            // Combined pack: Oritasy.Plugin.OnGUI calls DrawHostedGui so Profile
-            // still draws if this component failed to attach after Assembly.Load.
             return;
 #else
-            DrawCareerGui();
+            RunGuiBody();
 #endif
         }
 
-        internal static void DrawCareerGui()
+        internal static void RunGuiBody()
         {
+            if (!_wexonInitDone)
+                return;
             // First-run welcome / boot splash owns the screen
             if (OritasyHudBlocked())
                 return;
-
-            GuiScale.BeginGui();
-            try
+            if (OritasyMainMenuActive())
             {
-                Event e = Event.current;
-                // F9 support menu needs Layout / Mouse events for select + CONFIRM.
-                StrategicArsenal.DrawGui();
-                // Overlay HUDs: Repaint only
-                if (e == null || e.type == EventType.Repaint)
-                {
-                    KillAccolades.DrawGui();
-                    FriendlyKillHud.DrawGui();
-                }
-                // Career + Tab board need full IMGUI stream (Layout / drag / scroll).
                 PlayerCareer.DrawGui();
-                FlightAnalysis.DrawGui();
-                MatchScoreboard.DrawGui();
+                return;
             }
-            finally
+
+            Event e = Event.current;
+            // F9 support menu needs Layout / Mouse events for select + CONFIRM.
+            StrategicArsenal.DrawGui();
+            // Overlay HUDs: Repaint only
+            if (e == null || e.type == EventType.Repaint)
             {
-                GuiScale.EndGui();
+                KillAccolades.DrawGui();
+                FriendlyKillHud.DrawGui();
             }
+            // Career + Tab board need full IMGUI stream (Layout / drag / scroll).
+            PlayerCareer.DrawGui();
+            FlightAnalysis.DrawGui();
+            MatchScoreboard.DrawGui();
         }
 
         private static bool _oritasyHudResolved;
         private static System.Reflection.PropertyInfo _oritasyBlocksHudProp;
+        private static bool _oritasyMenuResolved;
+        private static System.Reflection.PropertyInfo _oritasyMainMenuProp;
+        private static bool _oritasyIsLowResolved;
+        private static System.Reflection.PropertyInfo _oritasyIsLowProp;
+
+        private static bool CachedOritasyIsLow()
+        {
+#if ORITASY_COMBINED
+            try { return Oritasy.PerfMode.IsLow; }
+            catch { return false; }
+#else
+            try
+            {
+                if (!_oritasyIsLowResolved)
+                {
+                    _oritasyIsLowResolved = true;
+                    Type perf = Type.GetType("Oritasy.PerfMode");
+                    if (perf != null)
+                    {
+                        _oritasyIsLowProp = perf.GetProperty("IsLow",
+                            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    }
+                }
+                if (_oritasyIsLowProp == null)
+                    return false;
+                object v = _oritasyIsLowProp.GetValue(null, null);
+                return v is bool && (bool)v;
+            }
+            catch { return false; }
+#endif
+        }
+
+        internal static bool OritasyMenuIdle()
+        {
+            return OritasyMainMenuActive();
+        }
+
+        internal static bool OritasyMainMenuActive()
+        {
+#if ORITASY_COMBINED
+            try { return Oritasy.OritasyPresentation.MainMenuActive; }
+            catch { return false; }
+#else
+            try
+            {
+                if (!_oritasyMenuResolved)
+                {
+                    _oritasyMenuResolved = true;
+                    Type t = Type.GetType("Oritasy.OritasyPresentation, Oritasy")
+                        ?? Type.GetType("Oritasy.OritasyPresentation");
+                    if (t != null)
+                    {
+                        _oritasyMainMenuProp = t.GetProperty("MainMenuActive",
+                            System.Reflection.BindingFlags.Static
+                            | System.Reflection.BindingFlags.Public
+                            | System.Reflection.BindingFlags.NonPublic);
+                    }
+                }
+                if (_oritasyMainMenuProp == null)
+                    return false;
+                object v = _oritasyMainMenuProp.GetValue(null, null);
+                return v is bool && (bool)v;
+            }
+            catch { return false; }
+#endif
+        }
 
         private static bool OritasyHudBlocked()
         {
@@ -1095,10 +888,10 @@ namespace WeXon
         }
 
         /// <summary>
-        /// Cosmetic tags: dual-mode guided missiles get [IAL] (ex-[MM]); nuke clones also get [10kt].
-        /// Identity (ship block / PreferNukes / ApplyNuke) uses jsonKey _IAL / NukeInfoIds — not the name tag.
+        /// Cosmetic tags: all WeXon missiles get [IAL]; only nuke clones also get [10kt].
+        /// Identity (ship block / PreferNukes / ApplyNuke) uses jsonKey _IAL / NukeInfoIds �?not the name tag.
         /// </summary>
-        internal static void ApplyNameTags(ref string name, ref string shortN, ref string desc, bool nuke, bool ial)
+        internal static void ApplyNameTags(ref string name, ref string shortN, ref string desc, bool nuke)
         {
             StripTag(ref name, "[MM]");
             StripTag(ref shortN, "[MM]");
@@ -1114,21 +907,11 @@ namespace WeXon
                 StripTag(ref desc, MmNameTag.Value);
             }
 
-            // [IAL] only when dual-mode / seeker-eligible (not rockets, cruise, ballistic, shells)
-            if (ial && IalLabelNames.Value)
+            // Ordinary + nuke clones: [IAL] suffix for branding
+            if (IalLabelNames.Value)
             {
                 AppendTag(ref name, IalNameTag.Value);
                 AppendTag(ref shortN, IalNameTag.Value);
-            }
-            else
-            {
-                StripTag(ref name, "[IAL]");
-                StripTag(ref shortN, "[IAL]");
-                if (IalNameTag != null)
-                {
-                    StripTag(ref name, IalNameTag.Value);
-                    StripTag(ref shortN, IalNameTag.Value);
-                }
             }
 
             // Yield tag only on real nuclear IAL clones
@@ -1150,160 +933,6 @@ namespace WeXon
                     StripTag(ref shortN, NukeNameTag.Value);
                 }
             }
-        }
-
-        /// <summary>
-        /// [IAL] = self-guided dual-mode eligible (historical [MM] rename),
-        /// or naval-exclusive SAM (RAM-45 / R9) which ships still brand.
-        /// </summary>
-        internal static bool ShouldCarryIalLabel(WeaponInfo info)
-        {
-            if (info == null)
-                return false;
-            string n = ((info.weaponName != null ? info.weaponName : string.Empty) + " "
-                + (info.shortName != null ? info.shortName : string.Empty) + " "
-                + (info.name != null ? info.name : string.Empty));
-            bool naval = ShipMissileService.IsNavalExclusiveWeaponInfo(info);
-            return IalLabelGateService.ShouldCarryIalLabel(
-                IsMissileInfoAllowed(info) || naval,
-                IsGunShellInfo(info),
-                IsScannerReconInfo(info),
-                IsRocketOrUnguidedName(n),
-                IsBallisticMissileName(n),
-                IsCruiseMissileName(n),
-                ShouldLeaveStockNuclearAlone(info),
-                AgmTWeapon.IsAgmTInfo(info) || Aam2CvWeapon.IsAam2CvInfo(info),
-                IsIalNukeCloneInfo(info),
-                InfoHasDualModeSeeker(info) || naval);
-        }
-
-        /// <summary>Prefab has a seeker MultiMode would attach to (not shell / ballistic / cruise seeker).</summary>
-        internal static bool InfoHasDualModeSeeker(WeaponInfo info)
-        {
-            if (info == null || info.weaponPrefab == null)
-                return false;
-            try
-            {
-                Missile m = info.weaponPrefab.GetComponent<Missile>();
-                if (m == null)
-                    m = info.weaponPrefab.GetComponentInChildren<Missile>(true);
-                if (m == null)
-                    return false;
-                MissileSeeker s = SeekerField != null ? SeekerField.GetValue(m) as MissileSeeker : null;
-                if (s == null)
-                    s = m.GetComponent<MissileSeeker>();
-                if (s == null)
-                    s = m.GetComponentInChildren<MissileSeeker>(true);
-                if (s == null)
-                    return false;
-                if (IsGunShellSeeker(s))
-                    return false;
-                if (s is BallisticMissileGuidance)
-                    return false;
-                if (s is OpticalSeekerCruiseMissile)
-                    return false;
-                return true;
-            }
-            catch { return false; }
-        }
-
-        /// <summary>Kh85MT owns TGM-85 display names ([IAL]; C also [10kt]).</summary>
-        internal static bool IsKh85WeaponInfo(WeaponInfo info)
-        {
-            if (info == null)
-                return false;
-            string n = ((info.weaponName != null ? info.weaponName : string.Empty) + " "
-                + (info.shortName != null ? info.shortName : string.Empty) + " "
-                + (info.name != null ? info.name : string.Empty));
-            return Kh85GuideGateService.WeaponBlobLooksKh85(n);
-        }
-
-        internal static bool IsKh85Mount(WeaponMount mount)
-        {
-            if (mount == null)
-                return false;
-            if (!string.IsNullOrEmpty(mount.jsonKey)
-                && mount.jsonKey.StartsWith("Kh85MT", StringComparison.OrdinalIgnoreCase))
-                return true;
-            return IsKh85WeaponInfo(mount.info);
-        }
-
-        /// <summary>TGM-85C Shardfall racks (all ammo counts) are the 10kt nuclear fit.</summary>
-        internal static bool IsTgm85CNuclearInfo(WeaponInfo info)
-        {
-            if (info == null || !IsKh85WeaponInfo(info))
-                return false;
-            string n = ((info.weaponName != null ? info.weaponName : string.Empty) + " "
-                + (info.shortName != null ? info.shortName : string.Empty) + " "
-                + (info.name != null ? info.name : string.Empty));
-            if (n.IndexOf("TGM-85C", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            if (n.IndexOf("Shardfall", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            // Bare Kh85MT info asset without letter = C family
-            if (info.name != null && info.name.StartsWith("Kh85MT_info_", StringComparison.OrdinalIgnoreCase))
-            {
-                string key = info.name.Substring("Kh85MT_info_".Length);
-                return !IsKh85LetterVariantKey(key);
-            }
-            return false;
-        }
-
-        internal static bool IsTgm85CNuclearMount(WeaponMount mount)
-        {
-            if (mount == null)
-                return false;
-            if (!string.IsNullOrEmpty(mount.jsonKey)
-                && mount.jsonKey.StartsWith("Kh85MT", StringComparison.OrdinalIgnoreCase))
-            {
-                bool saw;
-                Kh85GuideGateService.KindFromJsonKey(mount.jsonKey, out saw);
-                // C-family keys (no A/B/D/E/S letter)
-                if (saw && !IsKh85LetterVariantKey(mount.jsonKey))
-                    return true;
-            }
-            return IsTgm85CNuclearInfo(mount.info);
-        }
-
-        private static bool IsKh85LetterVariantKey(string key)
-        {
-            if (string.IsNullOrEmpty(key))
-                return false;
-            string core = key;
-            if (core.EndsWith("_IAL", StringComparison.OrdinalIgnoreCase))
-                core = core.Substring(0, core.Length - 4);
-            if (!core.StartsWith("Kh85MT", StringComparison.OrdinalIgnoreCase))
-                return false;
-            string rest = core.Length > 6 ? core.Substring(6) : string.Empty;
-            return Kh85GuideGateService.IsLetterToken(rest, "A")
-                || Kh85GuideGateService.IsLetterToken(rest, "B")
-                || Kh85GuideGateService.IsLetterToken(rest, "D")
-                || Kh85GuideGateService.IsLetterToken(rest, "E")
-                || Kh85GuideGateService.IsLetterToken(rest, "S");
-        }
-
-        internal static bool IsTgm85CNuclearMissile(Missile missile)
-        {
-            if (missile == null)
-                return false;
-            WeaponInfo info = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
-            if (IsTgm85CNuclearInfo(info))
-                return true;
-            string n = (missile.name != null ? missile.name : string.Empty);
-            try
-            {
-                if (missile.definition != null)
-                {
-                    n = n + " " + (missile.definition.unitName != null ? missile.definition.unitName : string.Empty)
-                        + " " + (missile.definition.jsonKey != null ? missile.definition.jsonKey : string.Empty);
-                }
-            }
-            catch { }
-            return n.IndexOf("TGM-85C", StringComparison.OrdinalIgnoreCase) >= 0
-                || n.IndexOf("Shardfall", StringComparison.OrdinalIgnoreCase) >= 0
-                || (n.IndexOf("Kh85MT", StringComparison.OrdinalIgnoreCase) >= 0
-                    && !IsKh85LetterVariantKey(missile.definition != null ? missile.definition.jsonKey : null)
-                    && GetKh85Kind(missile) == Kh85Kind.TerrainAim);
         }
 
         private const string NukeDescLine = "This is a nuclear missile";
@@ -1339,46 +968,15 @@ namespace WeXon
         /// </summary>
         internal static bool IsVanillaNuclearWeaponInfo(WeaponInfo info)
         {
-            if (info == null)
+            if (info == null || !info.nuclear)
                 return false;
             if (IsIalNukeCloneInfo(info))
                 return false;
             if (NukeInfoIds.Contains(info.GetInstanceID()))
                 return false;
-            if (AgmTWeapon.IsAgmTInfo(info))
+            if (AgmTWeapon.IsAgmTInfo(info) || LooksLikeForeignPackInfo(info))
                 return false;
-            if (Aam2CvWeapon.IsAam2CvInfo(info))
-                return false;
-            if (info.name != null && info.name.IndexOf("_IAL", StringComparison.OrdinalIgnoreCase) >= 0)
-                return false;
-            if (info.nuclear)
-                return true;
-            // Recover demoted stock nukes (sanitize used to clear .nuclear after adding [IAL])
-            return StockNuclearNameHeuristic(info);
-        }
-
-        /// <summary>
-        /// Stock nuclear munitions: never change yield, never add [10kt]/[IAL] yield branding.
-        /// </summary>
-        internal static bool ShouldLeaveStockNuclearAlone(WeaponInfo info)
-        {
-            return IsVanillaNuclearWeaponInfo(info);
-        }
-
-        private static bool StockNuclearNameHeuristic(WeaponInfo info)
-        {
-            if (info == null)
-                return false;
-            string blob = ((info.weaponName != null ? info.weaponName : string.Empty) + " "
-                + (info.shortName != null ? info.shortName : string.Empty) + " "
-                + (info.name != null ? info.name : string.Empty)).ToLowerInvariant();
-            return blob.IndexOf("genie", StringComparison.Ordinal) >= 0
-                || blob.IndexOf("air-2", StringComparison.Ordinal) >= 0
-                || blob.IndexOf("air2", StringComparison.Ordinal) >= 0
-                || blob.IndexOf("20kt", StringComparison.Ordinal) >= 0
-                || blob.IndexOf("tacnuke", StringComparison.Ordinal) >= 0
-                || blob.IndexOf("tac_nuke", StringComparison.Ordinal) >= 0
-                || blob.IndexOf("tac nuke", StringComparison.Ordinal) >= 0;
+            return true;
         }
 
         internal static bool IsVanillaNuclearMissileDef(MissileDefinition def)
@@ -1522,10 +1120,19 @@ namespace WeXon
             EnsureLinePrefix(ref desc, PackDescLine);
         }
 
-        /// <summary>Vanilla weapons that already ship nuclear (Genie, 20kt cruise, tacNuke bombs, …).</summary>
+        /// <summary>Vanilla weapons that already ship nuclear (Genie, 20kt cruise, tacNuke bombs, �?.</summary>
         internal static bool IsVanillaNuclearInfo(WeaponInfo info)
         {
-            return IsVanillaNuclearWeaponInfo(info);
+            if (info == null || !info.nuclear)
+                return false;
+            // Our own AGM-T / IAL clones are not "vanilla nuclear"
+            if (AgmTWeapon.IsAgmTInfo(info) || LooksLikeForeignPackInfo(info))
+                return false;
+            if (IsIalNukeCloneInfo(info) || NukeInfoIds.Contains(info.GetInstanceID()))
+                return false;
+            if (info.name != null && info.name.IndexOf("_IAL", StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
+            return true;
         }
 
         internal static bool MissileDefIsVanillaNuclear(MissileDefinition def)
@@ -1748,17 +1355,6 @@ namespace WeXon
         {
             if (missile == null)
                 return false;
-            byte flags;
-            if (TryGetFlightClass(missile, out flags))
-                return (flags & MissileFlightClassCache.GunShell) != 0;
-            return ResolveFlightClass(missile, out flags)
-                && (flags & MissileFlightClassCache.GunShell) != 0;
-        }
-
-        internal static bool IsGunShellMissileUncached(Missile missile)
-        {
-            if (missile == null)
-                return false;
             if (IsGunShellName(missile.name))
                 return true;
             try
@@ -1785,29 +1381,6 @@ namespace WeXon
             catch { }
             WeaponInfo info = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
             return IsGunShellInfo(info);
-        }
-
-        private static bool TryGetFlightClass(Missile missile, out byte flags)
-        {
-            flags = 0;
-            if (missile == null)
-                return false;
-            return MissileFlightClassCache.TryGet(missile.GetInstanceID(), out flags);
-        }
-
-        private static bool ResolveFlightClass(Missile missile, out byte flags)
-        {
-            flags = MissileFlightClassCache.Resolved;
-            if (missile == null)
-                return false;
-            if (IsGunShellMissileUncached(missile))
-                flags |= MissileFlightClassCache.GunShell;
-            if (IsBallisticMissileUncached(missile))
-                flags |= MissileFlightClassCache.Ballistic;
-            if (IsCruiseMissileUncached(missile))
-                flags |= MissileFlightClassCache.Cruise;
-            MissileFlightClassCache.Set(missile.GetInstanceID(), flags);
-            return true;
         }
 
         internal static bool IsGunShellInfo(WeaponInfo info)
@@ -1839,32 +1412,46 @@ namespace WeXon
             return NameMatchesWhitelist(missile.name != null ? missile.name : string.Empty);
         }
 
-        /// <summary>WeXon IAL [10kt] clone only — never stock Genie / 20kt / tacNuke.</summary>
         internal static bool IsNukeVariantInfo(WeaponInfo info)
         {
-            return IsIalNukeCloneInfo(info);
+            if (info == null)
+                return false;
+            if (LooksLikeForeignPackInfo(info))
+                return false;
+            // Prefer clone registry �?do not treat bare "[IAL]" or info.nuclear as proof
+            // (old ApplyNukeForced polluted shared vanilla WeaponInfo.nuclear �?false nukes)
+            if (NukeInfoIds.Contains(info.GetInstanceID()))
+                return true;
+            string n = (info.weaponName != null ? info.weaponName : string.Empty)
+                + " " + (info.shortName != null ? info.shortName : string.Empty)
+                + " " + (info.name != null ? info.name : string.Empty);
+            // Yield tag or asset name _IAL �?cosmetic "[IAL]" alone is never nuclear
+            if (n.IndexOf("[10kt]", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("[20kt]", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            // Instantiated clone assets are named …_IAL (not the display tag)
+            if (info.name != null && info.name.IndexOf("_IAL", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return false;
         }
 
-        /// <summary>
-        /// True only for WeXon IAL nuke clones (never vanilla nuclear like AIR-2 Genie).
-        /// Every *_IAL mount/info twin is a nuclear clone by design — do not require [10kt]
-        /// text (Sanitize / cosmetic relabel can strip tags without clearing identity).
-        /// ACNM-118 is 1.5kt and is handled by AgmTWeapon — not an IAL [10kt] twin.
-        /// </summary>
+        /// <summary>True only for WeXon IAL nuke clones (never vanilla nuclear like AIR-2 Genie).</summary>
         internal static bool IsIalNukeCloneInfo(WeaponInfo info)
         {
             if (info == null)
                 return false;
-            if (AgmTWeapon.IsAgmTInfo(info))
-                return false;
-            if (Aam2CvWeapon.IsAam2CvInfo(info))
+            if (LooksLikeForeignPackInfo(info))
                 return false;
             if (NukeInfoIds.Contains(info.GetInstanceID()))
                 return true;
-            // Instantiated clone assets are named …_IAL — never trust display [IAL]/[10kt] alone
-            if (info.name != null && info.name.IndexOf("_IAL", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            return false;
+            string n = (info.weaponName != null ? info.weaponName : string.Empty)
+                + " " + (info.shortName != null ? info.shortName : string.Empty)
+                + " " + (info.name != null ? info.name : string.Empty);
+            bool hasYieldTag = n.IndexOf("[10kt]", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("[20kt]", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool hasIal = n.IndexOf("[IAL]", StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("_IAL", StringComparison.OrdinalIgnoreCase) >= 0;
+            return hasYieldTag && hasIal;
         }
 
         internal static bool IsNukeVariantMissile(Missile missile)
@@ -1906,59 +1493,33 @@ namespace WeXon
 
         internal static bool IsShipUnit(Unit unit)
         {
-            return ShipMissileService.IsNavalLauncher(unit);
+            if (unit == null)
+                return false;
+            if (unit is Ship)
+                return true;
+            try { return unit.GetComponentInParent<Ship>() != null; }
+            catch { return false; }
         }
 
-        /// <summary>Ship-edition missile (tag or RAM-45/R9). Aircraft shots never match.</summary>
+        /// <summary>Missile fired from a ship / naval launcher (RAM45, VLS SAMs, etc.).</summary>
         internal static bool IsShipLaunchedMissile(Missile missile)
         {
-            return ShipMissileService.IsShipEdition(missile);
-        }
-
-        internal static bool IsSamRadarFamilyMissile(Missile missile)
-        {
-            return ShipMissileService.IsNavalExclusiveMunition(missile);
-        }
-
-        internal static bool IsVlsSoftLaunchMissile(Missile missile)
-        {
-            return ShipMissileService.IsVlsEdition(missile);
-        }
-
-        internal static void StampShipMissile(Missile missile, Unit spawnOwner)
-        {
-            ShipMissileService.Stamp(missile, spawnOwner);
-            ApplyIalInFlightName(missile);
-        }
-
-        /// <summary>HUD / kill-feed name: keep [IAL] on ship SAMs and dual-mode guided.</summary>
-        internal static void ApplyIalInFlightName(Missile missile)
-        {
-            if (missile == null || IalLabelNames == null || !IalLabelNames.Value)
-                return;
+            if (missile == null)
+                return false;
             try
             {
-                string n = missile.NetworkunitName;
-                if (string.IsNullOrEmpty(n) && missile.definition != null)
-                    n = missile.definition.unitName;
-                if (string.IsNullOrEmpty(n))
-                    return;
-                if (n.IndexOf("[IAL]", StringComparison.OrdinalIgnoreCase) >= 0)
-                    return;
-                WeaponInfo info = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
-                bool ial = (info != null && ShouldCarryIalLabel(info))
-                    || IsSamRadarFamilyMissile(missile);
-                if (!ial)
-                    return;
-                AppendTag(ref n, IalNameTag.Value);
-                missile.NetworkunitName = n;
+                if (IsShipUnit(missile.owner))
+                    return true;
             }
             catch { }
-        }
-
-        internal static void NoteShipMissileFire(Unit owner)
-        {
-            ShipMissileService.NoteFire(owner);
+            try
+            {
+                if (missile.transform != null && missile.transform.root != null
+                    && missile.transform.root.GetComponent<Ship>() != null)
+                    return true;
+            }
+            catch { }
+            return false;
         }
 
         /// <summary>Low-speed SD threshold in m/s (config stored as km/h).</summary>
@@ -1969,8 +1530,8 @@ namespace WeXon
         }
 
         /// <summary>
-        /// Soft CIWS / trainable rails often spawn with near-zero muzzle velocity.
-        /// VLS / SARH (RAM-45) are skipped: vanilla pitches at ~0 m/s then lights the delayed motor.
+        /// Soft VLS / CIWS rails often spawn with near-zero muzzle velocity; MultiMode then
+        /// deploys fins and the missile tumbles. Kick along nose until min launch speed.
         /// </summary>
         internal static void BoostShipMissileLaunchVelocity(Missile missile)
         {
@@ -1993,7 +1554,13 @@ namespace WeXon
             float spd = v.magnitude;
             float noseUpDot = Vector3.Dot(dir, Vector3.up);
             bool sarh = false;
-            try { sarh = missile.GetComponent<SARHSeeker>() != null; }
+            try
+            {
+                MissileSeeker seeker = SeekerField != null
+                    ? SeekerField.GetValue(missile) as MissileSeeker
+                    : null;
+                sarh = seeker is SARHSeeker;
+            }
             catch { }
             float need = ShipBoostMathService.ResolveKickDeltaV(
                 IsShipLaunchedMissile(missile), true, age, min, along, spd, noseUpDot, sarh);
@@ -2027,6 +1594,27 @@ namespace WeXon
             }
         }
 
+        /// <summary>True when Oritasy [IAL]/[10kt] nuke clones may appear for player or AI.</summary>
+        internal static bool OritasyNukesAllowed
+        {
+            get { return EnableNukeVariants == null || EnableNukeVariants.Value; }
+        }
+
+        /// <summary>Strip only Oritasy IAL nuclear clones. Vanilla Genie / tacNuke stay.</summary>
+        internal static void RemoveIalNukeClonesFromList(List<WeaponMount> list)
+        {
+            if (list == null || list.Count == 0)
+                return;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                WeaponMount m = list[i];
+                if (m == null)
+                    continue;
+                if (IsIalNukeCloneInfo(m.info))
+                    list.RemoveAt(i);
+            }
+        }
+
         /// <summary>Strip nuclear + IAL mounts so AI loadout picks conventional.</summary>
         internal static void RemoveNuclearFromList(List<WeaponMount> list)
         {
@@ -2042,29 +1630,6 @@ namespace WeXon
             }
         }
 
-        /// <summary>
-        /// When AI rolled nuke preference but faction warhead stock is empty: keep IAL
-        /// (no stockpile cost) and strip only stockpile vanilla nukes.
-        /// </summary>
-        internal static void RemoveStockpileNukesKeepIal(List<WeaponMount> list)
-        {
-            if (list == null || list.Count == 0)
-                return;
-            for (int i = list.Count - 1; i >= 0; i--)
-            {
-                WeaponMount m = list[i];
-                if (m == null)
-                {
-                    list.RemoveAt(i);
-                    continue;
-                }
-                if (IsIalExemptFromWarheadQuota(m))
-                    continue;
-                if (m.info != null && m.info.nuclear)
-                    list.RemoveAt(i);
-            }
-        }
-
         internal static bool RollAiNukePreference()
         {
             float chance = AiNukeChance != null ? AiNukeChance.Value : 0.15f;
@@ -2076,12 +1641,8 @@ namespace WeXon
             if (def == null)
                 return false;
             string key = def.jsonKey != null ? def.jsonKey : string.Empty;
-            if (IsIalKey(key))
-                return true;
-            // Identity is *_IAL key / asset name — never trust display [IAL] alone
-            if (def.name != null && def.name.IndexOf("_IAL", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            return false;
+            string name = def.unitName != null ? def.unitName : string.Empty;
+            return IsIalKey(key) || name.IndexOf("[IAL]", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static bool MissileDefMatchesFilter(MissileDefinition def)
@@ -2103,8 +1664,8 @@ namespace WeXon
             string name = info.weaponName;
             string shortN = info.shortName;
             string desc = info.description;
-            bool ial = nuke || ShouldCarryIalLabel(info);
-            ApplyNameTags(ref name, ref shortN, ref desc, nuke, ial);
+            // mm ignored �?only [IAL] / [10kt]
+            ApplyNameTags(ref name, ref shortN, ref desc, nuke);
             info.weaponName = name;
             info.shortName = shortN;
             info.description = desc;
@@ -2114,19 +1675,11 @@ namespace WeXon
         {
             if (mount == null)
                 return;
-            if (AgmTWeapon.IsAgmTMount(mount))
-                return;
-            if (Aam2CvWeapon.IsAam2CvMount(mount))
-                return;
-            // Kh85MT owns TGM-85 names ([IAL]; C = [10kt])
-            if (IsKh85Mount(mount))
-                return;
-            // Stock nuclear: leave name + yield untouched (no [IAL] / [10kt] branding)
-            if (mount.info != null && ShouldLeaveStockNuclearAlone(mount.info))
+            if (AgmTWeapon.IsAgmTMount(mount) || LooksLikeForeignPackMount(mount))
                 return;
 
             if (mount.info != null)
-                ApplyWeaponInfoFlags(mount.info, IsIalNukeCloneInfo(mount.info));
+                ApplyWeaponInfoFlags(mount.info, IsNukeVariantInfo(mount.info));
 
             int id = mount.GetInstanceID();
             if (TouchedMounts.Contains(id))
@@ -2138,15 +1691,9 @@ namespace WeXon
             StripTag(ref n, "[20kt]");
             if (MmNameTag != null)
                 StripTag(ref n, MmNameTag.Value);
-            bool ial = nuke || (mount.info != null && ShouldCarryIalLabel(mount.info));
-            if (ial && IalLabelNames.Value)
+            // All WeXon missile mounts: [IAL] cosmetic; [10kt] only on nuke clones
+            if (IalLabelNames.Value)
                 AppendTag(ref n, IalNameTag.Value);
-            else
-            {
-                StripTag(ref n, "[IAL]");
-                if (IalNameTag != null)
-                    StripTag(ref n, IalNameTag.Value);
-            }
             if (nuke && NukeLabelNames.Value)
                 AppendTag(ref n, NukeNameTag.Value);
             else
@@ -2235,29 +1782,19 @@ namespace WeXon
                     continue;
                 if (!IsMissileInfoAllowed(src.info))
                     continue;
-                // Ship-only SAMs keep [IAL] names but never get a [10kt] twin
-                if (ShipMissileService.IsNavalExclusiveMount(src))
-                    continue;
                 if (IsIalKey(src.jsonKey) || IsNukeVariantInfo(src.info))
                     continue;
-                // Already nuclear in vanilla (Genie / 20kt cruise / tacNuke / …) — no IAL twin
+                // Already nuclear in vanilla (Genie / 20kt cruise / tacNuke / �? �?no IAL twin
                 if (IsVanillaNuclearWeaponInfo(src.info))
+                    continue;
+                if (LooksLikeForeignPackMount(src))
                     continue;
                 if (AgmTWeapon.IsAgmTMount(src) || AgmTWeapon.IsAgmTKey(src.jsonKey))
                     continue;
                 if (Aam2CvWeapon.IsAam2CvMount(src) || Aam2CvWeapon.IsAam2CvKey(src.jsonKey))
                     continue;
-                // Kh85MT owns TGM-85C nuclear racks — no WeXon *_IAL twin
-                if (IsKh85Mount(src))
-                    continue;
-                // Eyeball / AGM_scanner: recon pod — never IAL [10kt] nuke twin
-                if (IsScannerReconInfo(src.info)
-                    || MissileClassifyGateService.IsScannerReconName(src.jsonKey)
-                    || MissileClassifyGateService.IsScannerReconName(src.name)
-                    || MissileClassifyGateService.IsScannerReconName(src.mountName))
-                    continue;
-                // Only dual-mode guided ([IAL]-eligible) get a nuclear twin
-                if (!ShouldCarryIalLabel(src.info))
+                if (LooksLikeKh85Blob(src.jsonKey) || LooksLikeKh85Blob(src.name)
+                    || LooksLikeKh85Blob(src.mountName))
                     continue;
                 if (src.name != null && src.name.IndexOf("_IAL", StringComparison.OrdinalIgnoreCase) >= 0)
                     continue;
@@ -2291,10 +1828,8 @@ namespace WeXon
                 string mn = src.mountName != null && src.mountName.Length > 0 ? src.mountName : clone.name;
                 StripTag(ref mn, "[MM]");
                 StripTag(ref mn, "[20kt]");
-                StripTag(ref mn, "[10kt]");
-                // Display: … [IAL] [10kt] (10kt yield branding on IAL twins only)
-                AppendTag(ref mn, IalNameTag.Value);
                 AppendTag(ref mn, NukeNameTag.Value);
+                AppendTag(ref mn, IalNameTag.Value);
                 clone.mountName = mn;
 
                 NukeInfoIds.Add(infoClone.GetInstanceID());
@@ -2331,66 +1866,6 @@ namespace WeXon
             Log.LogInfo("Nuke mount clones: added " + added + " (vanilla mounts unchanged)");
         }
 
-        /// <summary>
-        /// Drop mistaken IAL [10kt] twins of Eyeball / AGM_scanner (recon pods, not warheads).
-        /// </summary>
-        internal static void PurgeScannerReconIalClones()
-        {
-            Encyclopedia enc = GetEncyclopedia();
-            int removed = 0;
-
-            for (int i = NukeMountClones.Count - 1; i >= 0; i--)
-            {
-                WeaponMount m = NukeMountClones[i];
-                if (m == null)
-                    continue;
-                string baseKey = StripIalKeySuffix(m.jsonKey);
-                bool hit = MissileClassifyGateService.IsScannerReconName(baseKey)
-                    || MissileClassifyGateService.IsScannerReconName(m.jsonKey)
-                    || MissileClassifyGateService.IsScannerReconName(m.name)
-                    || MissileClassifyGateService.IsScannerReconName(m.mountName)
-                    || IsScannerReconInfo(m.info);
-                if (!hit)
-                    continue;
-                if (enc != null && enc.weaponMounts != null)
-                    enc.weaponMounts.Remove(m);
-                if (Encyclopedia.WeaponLookup != null && !string.IsNullOrEmpty(m.jsonKey))
-                    Encyclopedia.WeaponLookup.Remove(m.jsonKey);
-                if (m.info != null)
-                    NukeInfoIds.Remove(m.info.GetInstanceID());
-                if (!string.IsNullOrEmpty(m.jsonKey))
-                    CreatedNukeKeys.Remove(m.jsonKey);
-                CachedMountSet.Remove(m);
-                CachedMounts.Remove(m);
-                NukeMountClones.RemoveAt(i);
-                try { UnityEngine.Object.Destroy(m); }
-                catch { }
-                removed++;
-            }
-
-            if (enc != null && enc.missiles != null)
-            {
-                for (int i = enc.missiles.Count - 1; i >= 0; i--)
-                {
-                    MissileDefinition d = enc.missiles[i];
-                    if (d == null || !IsIalMissileDef(d))
-                        continue;
-                    string baseKey = StripIalKeySuffix(d.jsonKey);
-                    if (!MissileClassifyGateService.IsScannerReconName(baseKey)
-                        && !MissileClassifyGateService.IsScannerReconName(d.unitName)
-                        && !MissileClassifyGateService.IsScannerReconName(d.name))
-                        continue;
-                    enc.missiles.RemoveAt(i);
-                    if (Encyclopedia.Lookup != null && !string.IsNullOrEmpty(d.jsonKey))
-                        Encyclopedia.Lookup.Remove(d.jsonKey);
-                    removed++;
-                }
-            }
-
-            if (removed > 0)
-                Log.LogInfo("Purged " + removed + " IAL clones of scanner/recon weapons (Eyeball)");
-        }
-
         internal static void EnsureIalEncyclopedia()
         {
             if (!EnableEncyclopediaPages.Value || EncyclopediaInjected)
@@ -2417,19 +1892,16 @@ namespace WeXon
                 MissileDefinition src = snapshot[i];
                 if (src == null || IsIalMissileDef(src) || !MissileDefMatchesFilter(src))
                     continue;
-                if (MissileClassifyGateService.LooksLikeNavalExclusiveName(src.jsonKey)
-                    || MissileClassifyGateService.LooksLikeNavalExclusiveName(src.unitName)
-                    || MissileClassifyGateService.LooksLikeNavalExclusiveName(src.name))
+                if (LooksLikeForeignPackDef(src))
                     continue;
                 if (AgmTWeapon.IsAgmTKey(src.jsonKey))
                     continue;
                 if (Aam2CvWeapon.IsAam2CvKey(src.jsonKey))
                     continue;
-                if (IsVanillaNuclearMissileDef(src))
+                if (LooksLikeKh85Blob(src.jsonKey) || LooksLikeKh85Blob(src.unitName)
+                    || LooksLikeKh85Blob(src.name))
                     continue;
-                if (MissileClassifyGateService.IsScannerReconName(src.jsonKey)
-                    || MissileClassifyGateService.IsScannerReconName(src.unitName)
-                    || MissileClassifyGateService.IsScannerReconName(src.name))
+                if (IsVanillaNuclearMissileDef(src))
                     continue;
 
                 string baseKey = src.jsonKey != null && src.jsonKey.Length > 0 ? src.jsonKey : src.name;
@@ -2513,59 +1985,12 @@ namespace WeXon
                         Encyclopedia.WeaponLookup[m.jsonKey] = m;
                 }
             }
-
-            LabelMissileDefinitionNames();
-        }
-
-        /// <summary>
-        /// In-flight / encyclopedia names use MissileDefinition.unitName.
-        /// Keep [IAL] on dual-mode guided and naval SAMs (no [10kt] here).
-        /// </summary>
-        internal static void LabelMissileDefinitionNames()
-        {
-            if (IalLabelNames == null || !IalLabelNames.Value)
-                return;
-            MissileDefinition[] defs = Resources.FindObjectsOfTypeAll<MissileDefinition>();
-            if (defs == null)
-                return;
-            for (int i = 0; i < defs.Length; i++)
-            {
-                MissileDefinition d = defs[i];
-                if (d == null)
-                    continue;
-                if (IsIalMissileDef(d) || IsVanillaNuclearMissileDef(d))
-                    continue;
-                if (AgmTWeapon.IsAgmTKey(d.jsonKey))
-                    continue;
-                if (Aam2CvWeapon.IsAam2CvKey(d.jsonKey))
-                    continue;
-                string blob = ((d.unitName != null ? d.unitName : string.Empty) + " "
-                    + (d.code != null ? d.code : string.Empty) + " "
-                    + (d.jsonKey != null ? d.jsonKey : string.Empty) + " "
-                    + (d.name != null ? d.name : string.Empty));
-                if (IsGunShellName(blob)
-                    || IsRocketOrUnguidedName(blob)
-                    || IsBallisticMissileName(blob)
-                    || IsCruiseMissileName(blob)
-                    || MissileClassifyGateService.IsScannerReconName(blob))
-                    continue;
-                bool naval = MissileClassifyGateService.LooksLikeNavalExclusiveName(blob);
-                if (!naval && !MissileDefMatchesFilter(d))
-                    continue;
-                string name = d.unitName != null ? d.unitName : string.Empty;
-                StripTag(ref name, "[MM]");
-                StripTag(ref name, "[10kt]");
-                StripTag(ref name, "[20kt]");
-                AppendTag(ref name, IalNameTag.Value);
-                d.unitName = name;
-            }
         }
 
         internal static void RefreshEncyclopediaData()
         {
             // Always re-bind AGM-T (cheap) �?early inject can miss AfterLoad
             AgmTWeapon.Ensure();
-            Aam2CvWeapon.Ensure();
 
             // Hangar / encyclopedia UI used to re-run full inject+brand every open �?huge hitch
             if (EncyclopediaDataReady)
@@ -2573,6 +1998,10 @@ namespace WeXon
 
             EnsureNukeMountClones();
             EnsureIalEncyclopedia();
+#if ORITASY_COMBINED
+            try { Oritasy.KeAmmoCloneService.Ensure(); }
+            catch { }
+#endif
             BrandEncyclopediaEntries(GetEncyclopedia());
 
             bool nukesOk = !EnableNukeVariants.Value || NukeMountsInjected;
@@ -2584,32 +2013,28 @@ namespace WeXon
         }
 
         /// <summary>
-        /// Labels + flags. [IAL] only on dual-mode guided; [10kt] only on *_IAL nuke clones.
+        /// Labels + flags. Nuke flags only on real IAL nuke clones; [IAL] name on all allowed missiles.
         /// </summary>
         internal static void ApplyWeaponInfoFlags(WeaponInfo info, bool forceNuke)
         {
-            if (info == null)
+            if (info == null || !IsMissileInfoAllowed(info))
                 return;
-            if (!IsMissileInfoAllowed(info) && !ShipMissileService.IsNavalExclusiveWeaponInfo(info))
+            if (IsKeReplicaInfo(info))
                 return;
-            // ACM-119 / ACNM-118: own names (ACNM = 1.5kt, never [10kt])
-            if (AgmTWeapon.IsAgmTInfo(info))
-                return;
-            if (Aam2CvWeapon.IsAam2CvInfo(info))
-                return;
-            // Kh85MT owns TGM-85 names (C = [IAL] [10kt] on every ammo rack)
-            if (IsKh85WeaponInfo(info))
-                return;
-            // Stock nuclear: do not change yield or add yield tags
-            if (ShouldLeaveStockNuclearAlone(info))
+            // Keep AGM-T / Veyrn / Pulsar display names (no Oritasy [10kt] stamp)
+            if (AgmTWeapon.IsAgmTInfo(info) || LooksLikeForeignPackInfo(info))
                 return;
 
             bool nukeClone = forceNuke || IsIalNukeCloneInfo(info) || NukeInfoIds.Contains(info.GetInstanceID());
+            bool wantLabel = IalLabelNames.Value || EnableMultiMode.Value || nukeClone;
+            if (!wantLabel)
+                return;
+
             int id = info.GetInstanceID();
             if (!TouchedInfos.Add(id))
                 return; // already labeled
 
-            // Only IAL *_IAL twins: nuclear + 10kt yield + [10kt] tag
+            // Never promote vanilla WeaponInfo to nuclear
             if (nukeClone)
             {
                 if (SetNuclearFlag.Value)
@@ -2619,12 +2044,10 @@ namespace WeXon
                 info.blastDamage = GetIalNukeBlastYield();
             }
 
-            // LabelInfo applies or strips [IAL] via ShouldCarryIalLabel
             LabelInfo(info, nukeClone, EnableMultiMode.Value);
 
             if (DebugLog.Value)
-                Log.LogInfo("Labeled WeaponInfo: " + info.weaponName + " nukeClone=" + nukeClone
-                    + " ial=" + ShouldCarryIalLabel(info));
+                Log.LogInfo("Labeled WeaponInfo: " + info.weaponName + " nukeClone=" + nukeClone);
         }
 
         private static void ScanLoadedWeaponAssets()
@@ -2632,13 +2055,13 @@ namespace WeXon
             if (EnableNukeVariants.Value)
                 ResolveNukeFx(false);
             EnsureNukeMountClones();
-            PurgeScannerReconIalClones();
             AgmTWeapon.Ensure();
-            Aam2CvWeapon.Ensure();
             // Strip false [10kt]/nuclear from vanilla; re-apply cosmetic [IAL]
             SanitizeFalseIalLabels();
-            // Guarantee *_IAL twins keep nuclear + [10kt] after sanitize/cosmetic passes
-            RepairIalNukeCloneLabels();
+#if ORITASY_COMBINED
+            try { Oritasy.KeAmmoCloneService.Ensure(); }
+            catch { }
+#endif
             RefreshMountCache();
 
             int n = 0;
@@ -2646,9 +2069,7 @@ namespace WeXon
             for (int i = 0; i < infos.Length; i++)
             {
                 WeaponInfo info = infos[i];
-                if (info == null)
-                    continue;
-                if (!IsMissileInfoAllowed(info) && !ShipMissileService.IsNavalExclusiveWeaponInfo(info))
+                if (info == null || !IsMissileInfoAllowed(info))
                     continue;
                 ApplyWeaponInfoFlags(info, IsIalNukeCloneInfo(info));
                 n++;
@@ -2658,20 +2079,16 @@ namespace WeXon
             for (int i = 0; i < mounts.Length; i++)
             {
                 WeaponMount m = mounts[i];
-                if (m == null || m.info == null)
-                    continue;
-                if (!IsMissileInfoAllowed(m.info) && !ShipMissileService.IsNavalExclusiveMount(m))
+                if (m == null || m.info == null || !IsMissileInfoAllowed(m.info))
                     continue;
                 bool nukeClone = IsIalMount(m) || IsIalNukeCloneInfo(m.info);
                 LabelMount(m, nukeClone, EnableMultiMode.Value);
             }
 
-            LabelMissileDefinitionNames();
-
             Log.LogInfo("Scan: infos=" + n + " mounts=" + CachedMounts.Count
                 + " nukeClones=" + NukeMountClones.Count
                 + " fx=" + (CachedNukeFx != null ? CachedNukeFx.name : "PENDING")
-                + " ([IAL]=dual-mode guided; identity via _IAL key)");
+                + " ([IAL] cosmetic on all; identity via _IAL key)");
         }
 
         internal static GameObject ResolveNukeFx(bool logFailure)
@@ -2780,7 +2197,11 @@ namespace WeXon
             if (weapon.info != null && weapon.info.gun)
                 return;
             AgmTWeapon.SyncFromMount(weapon, mount);
-            Aam2CvWeapon.SyncFromMount(weapon, mount);
+            if (IsKeReplicaMount(mount))
+            {
+                weapon.info = mount.info;
+                return;
+            }
             // Only the IAL nuke-clone path needs this sync
             if (!IsIalKey(mount.jsonKey) && !IsIalNukeCloneInfo(mount.info))
                 return;
@@ -2790,13 +2211,62 @@ namespace WeXon
                 Log.LogInfo("Synced nuke WeaponInfo onto " + weapon.name + " mount=" + mount.mountName);
         }
 
+        internal static bool IsKeReplicaMount(WeaponMount mount)
+        {
+            if (mount == null)
+                return false;
+            if (IsKeReplicaKey(mount.jsonKey))
+                return true;
+            return IsKeReplicaInfo(mount.info);
+        }
+
+        internal static bool IsKeReplicaKey(string key)
+        {
+            if (string.IsNullOrEmpty(key))
+                return false;
+            return key.EndsWith("_KE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsKeReplicaInfo(WeaponInfo info)
+        {
+            if (info == null)
+                return false;
+            try
+            {
+                string n = (info.weaponName != null ? info.weaponName : string.Empty) + " "
+                    + (info.shortName != null ? info.shortName : string.Empty);
+                if (n.IndexOf("[KE]", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            catch { }
+            return false;
+        }
+
+        internal static bool IsKeReplicaMissile(Missile missile)
+        {
+            if (missile == null)
+                return false;
+            try
+            {
+                if (missile.definition != null && IsKeReplicaKey(missile.definition.jsonKey))
+                    return true;
+            }
+            catch { }
+            try
+            {
+                WeaponInfo inf = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
+                if (IsKeReplicaInfo(inf))
+                    return true;
+            }
+            catch { }
+            return false;
+        }
+
         internal static bool IsNukeMount(WeaponMount mount)
         {
             if (mount == null)
                 return false;
             if (IsIalKey(mount.jsonKey))
-                return true;
-            if (IsTgm85CNuclearMount(mount))
                 return true;
             return IsIalNukeCloneInfo(mount.info);
         }
@@ -2804,11 +2274,7 @@ namespace WeXon
         /// <summary>IAL / [10kt] clones ignore faction airbase warhead stockpile limits.</summary>
         internal static bool IsIalExemptFromWarheadQuota(WeaponInfo info)
         {
-            if (AgmTWeapon.IsAgmTInfo(info))
-                return true;
-            if (Aam2CvWeapon.IsAam2CvInfo(info))
-                return true;
-            if (IsTgm85CNuclearInfo(info))
+            if (AgmTWeapon.IsAgmTInfo(info) || LooksLikeForeignPackInfo(info))
                 return true;
             return IsIalNukeCloneInfo(info);
         }
@@ -2819,13 +2285,8 @@ namespace WeXon
                 return false;
             if (IsIalKey(mount.jsonKey))
                 return true;
-            // ACNM-118 uses its own 1.5kt bus — never consume faction warhead stockpile
-            if (AgmTWeapon.IsAgmTMount(mount))
-                return true;
-            if (Aam2CvWeapon.IsAam2CvMount(mount))
-                return true;
-            // TGM-85C (all ammo racks) — 10kt nuclear fit, no stockpile cost
-            if (IsTgm85CNuclearMount(mount))
+            // ACNM-118 uses its own 1.5kt bus �?never consume faction warhead stockpile
+            if (AgmTWeapon.IsAgmTMount(mount) || LooksLikeForeignPackMount(mount))
                 return true;
             return IsIalNukeCloneInfo(mount.info);
         }
@@ -2843,10 +2304,8 @@ namespace WeXon
         }
 
         /// <summary>
-        /// Strip false [10kt]/[IAL] from ineligible mounts; re-apply [IAL] only on dual-mode guided.
-        /// Real IAL nuke clones (*_IAL / NukeInfoIds) are left alone.
-        /// Stock nuclear (Genie / 20kt / tacNuke): completely untouched (yield + tags).
-        /// ACM-119 / ACNM-118: handled by AgmTWeapon (1.5kt, no [10kt]).
+        /// Remove false [10kt]/nuclear from vanilla; keep/re-apply cosmetic [IAL].
+        /// Clone infos (NukeInfoIds) are left alone. Genie-style vanilla nukes (nuclear, no IAL) kept.
         /// </summary>
         internal static void SanitizeFalseIalLabels()
         {
@@ -2857,19 +2316,11 @@ namespace WeXon
             for (int i = 0; i < infos.Length; i++)
             {
                 WeaponInfo info = infos[i];
-                if (info == null || IsIalNukeCloneInfo(info))
+                if (info == null || NukeInfoIds.Contains(info.GetInstanceID()))
                     continue;
-                if (AgmTWeapon.IsAgmTInfo(info))
+                if (AgmTWeapon.IsAgmTInfo(info) || LooksLikeForeignPackInfo(info))
                     continue;
-                if (Aam2CvWeapon.IsAam2CvInfo(info))
-                    continue;
-                // Kh85MT owns TGM-85 [IAL] / TGM-85C [10kt] branding
-                if (IsKh85WeaponInfo(info))
-                    continue;
-                // Never rewrite stock nuclear yield / names / nuclear flag
-                if (ShouldLeaveStockNuclearAlone(info))
-                    continue;
-                if (!info.missile)
+                if (!IsMissileInfoAllowed(info))
                     continue;
                 string name = info.weaponName;
                 string shortN = info.shortName;
@@ -2888,35 +2339,17 @@ namespace WeXon
                 StripTag(ref shortN, "[20kt]");
                 StripTag(ref name, "[MM]");
                 StripTag(ref shortN, "[MM]");
-                bool ial = ShouldCarryIalLabel(info);
-                if (ial && IalLabelNames.Value)
+                if (IalLabelNames.Value)
                 {
                     AppendTag(ref name, IalNameTag.Value);
                     AppendTag(ref shortN, IalNameTag.Value);
                 }
-                else
-                {
-                    StripTag(ref name, "[IAL]");
-                    StripTag(ref shortN, "[IAL]");
-                    if (IalNameTag != null)
-                    {
-                        StripTag(ref name, IalNameTag.Value);
-                        StripTag(ref shortN, IalNameTag.Value);
-                    }
-                }
                 info.weaponName = name;
                 info.shortName = shortN;
-                // Strip WeXon pollution on conventional missiles only (stock nukes skipped above)
+                // Strip WeXon pollution: nuclear flag / IAL yield on non-clone infos.
+                // Keep genuine vanilla nukes (e.g. Genie): nuclear without IAL cosmetic / yield tag.
                 if (info.nuclear && (hadYield || hasIalCosmetic || yieldLooksIal))
                     info.nuclear = false;
-                // Drop stolen nuke blurb from conventional / recon infos (Eyeball pollution).
-                if (!string.IsNullOrEmpty(desc)
-                    && desc.IndexOf(NukeDescLine, StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    desc = desc.Replace(NukeDescLine + "\n\n", string.Empty);
-                    desc = desc.Replace(NukeDescLine + "\n", string.Empty);
-                    desc = desc.Replace(NukeDescLine, string.Empty).Trim();
-                }
                 info.description = desc;
                 TouchedInfos.Remove(info.GetInstanceID());
             }
@@ -2925,54 +2358,26 @@ namespace WeXon
             for (int i = 0; i < mounts.Length; i++)
             {
                 WeaponMount m = mounts[i];
-                if (m == null || IsIalMount(m))
+                if (m == null || IsIalKey(m.jsonKey))
+                    continue;
+                if (LooksLikeForeignPackMount(m))
                     continue;
                 if (AgmTWeapon.IsAgmTMount(m))
                     continue;
                 if (Aam2CvWeapon.IsAam2CvMount(m))
                     continue;
-                if (IsKh85Mount(m))
+                if (LooksLikeKh85Blob(m.jsonKey) || LooksLikeKh85Blob(m.mountName))
                     continue;
-                if (m.info != null && IsIalNukeCloneInfo(m.info))
-                    continue;
-                if (m.info != null && ShouldLeaveStockNuclearAlone(m.info))
+                if (m.info != null && NukeInfoIds.Contains(m.info.GetInstanceID()))
                     continue;
                 string n = m.mountName;
                 StripTag(ref n, "[10kt]");
                 StripTag(ref n, "[20kt]");
                 StripTag(ref n, "[MM]");
-                bool ial = m.info != null && ShouldCarryIalLabel(m.info);
-                if (ial && IalLabelNames.Value)
+                if (IalLabelNames.Value)
                     AppendTag(ref n, IalNameTag.Value);
-                else
-                {
-                    StripTag(ref n, "[IAL]");
-                    if (IalNameTag != null)
-                        StripTag(ref n, IalNameTag.Value);
-                }
                 m.mountName = n;
                 TouchedMounts.Remove(m.GetInstanceID());
-            }
-        }
-
-        /// <summary>Re-assert nuclear flags / [10kt] on every IAL nuke clone after sanitize.</summary>
-        internal static void RepairIalNukeCloneLabels()
-        {
-            for (int i = 0; i < NukeMountClones.Count; i++)
-            {
-                WeaponMount m = NukeMountClones[i];
-                if (m == null || m.info == null)
-                    continue;
-                if (SetNuclearFlag != null && SetNuclearFlag.Value)
-                    m.info.nuclear = true;
-                if (SetStrategicFlag != null && SetStrategicFlag.Value)
-                    m.info.strategic = true;
-                m.info.blastDamage = GetIalNukeBlastYield();
-                NukeInfoIds.Add(m.info.GetInstanceID());
-                TouchedInfos.Remove(m.info.GetInstanceID());
-                TouchedMounts.Remove(m.GetInstanceID());
-                LabelInfo(m.info, true, false);
-                LabelMount(m, true, false);
             }
         }
 
@@ -2989,9 +2394,8 @@ namespace WeXon
             if (!EnableNukeVariants.Value || weapon == null)
                 return;
             WeaponMount mount = GetWeaponMount(weapon);
-            // IAL *_IAL clones or TGM-85C nuclear racks — never bare [IAL] cosmetic
-            if (!IsNukeMount(mount) && !IsIalNukeCloneInfo(weapon.info)
-                && !IsTgm85CNuclearInfo(weapon.info) && !IsTgm85CNuclearMount(mount))
+            // Only real IAL nuke mounts / clone infos �?never bare [IAL] cosmetic or polluted .nuclear
+            if (!IsNukeMount(mount) && !IsIalNukeCloneInfo(weapon.info))
                 return;
             PendingNukeSpawns++;
             PendingNukeWeapon = weapon;
@@ -3031,12 +2435,12 @@ namespace WeXon
                 return;
             if (!IsMissileAllowed(missile) || IsGunShellMissile(missile))
                 return;
-            // AGM-T bus / GS25 / AAM-2CV use their own warhead path — never IAL ApplyNuke
-            if (AgmTWeapon.ShouldBlockIalPendingNuke(missile) || Aam2CvWeapon.IsAam2CvMissile(missile))
+            // AGM-T bus / GS25 use their own warhead path �?never IAL ApplyNuke
+            if (AgmTWeapon.ShouldBlockIalPendingNuke(missile))
                 return;
-            // WeXon IAL *_IAL clones + TGM-85C 10kt racks (ACNM-118 uses ApplyAgmTNukeWarhead)
+            // Only WeXon IAL clones �?never vanilla nuclear (Genie) or name-tag false positives
             WeaponInfo info = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
-            if (!IsIalNukeCloneInfo(info) && !IsTgm85CNuclearInfo(info) && !IsTgm85CNuclearMissile(missile))
+            if (!IsIalNukeCloneInfo(info))
                 return;
             ApplyNukeForced(missile, reason);
         }
@@ -3070,11 +2474,8 @@ namespace WeXon
                     BlastYieldField.SetValue(missile, y);
                 if (PierceDamage != null && PierceDamage.Value >= 0f && PierceField != null)
                     PierceField.SetValue(missile, PierceDamage.Value);
-                // FX only — keep unarmed until GS25/bus arm delay (impact fuse needs a later Arm).
+                // FX only — do not Arm here (ACNM nuclear arm delay / safe distance).
                 ApplyWarheadFx(missile, false);
-                object wh0 = WarheadField != null ? WarheadField.GetValue(missile) : null;
-                if (wh0 != null && WhArmed != null)
-                    WhArmed.SetValue(wh0, false);
                 ApplyAgmTDragReduction(missile);
                 if (DebugLog != null && DebugLog.Value)
                     Log.LogInfo("AGM-T nuke warhead on " + missile.name + " yield=" + y + " (unarmed until safe)");
@@ -3082,27 +2483,6 @@ namespace WeXon
             catch (Exception ex)
             {
                 Log.LogWarning("ApplyAgmTNukeWarhead: " + ex.Message);
-            }
-        }
-
-        /// <summary>AAM-2CV [5kt] — instance yield + FX, armed immediately (AAM, not ACNM delay).</summary>
-        internal static void ApplyAam2CvNukeWarhead(Missile missile)
-        {
-            if (missile == null)
-                return;
-            try
-            {
-                if (BlastYieldField != null)
-                    BlastYieldField.SetValue(missile, Aam2CvWeapon.NukeYield5kt);
-                if (PierceDamage != null && PierceDamage.Value >= 0f && PierceField != null)
-                    PierceField.SetValue(missile, PierceDamage.Value);
-                ApplyWarheadFx(missile, true);
-                if (DebugLog != null && DebugLog.Value)
-                    Log.LogInfo("AAM-2CV 5kt warhead on " + missile.name);
-            }
-            catch (Exception ex)
-            {
-                Log.LogWarning("ApplyAam2CvNukeWarhead: " + ex.Message);
             }
         }
 
@@ -3145,21 +2525,6 @@ namespace WeXon
                 if (DebugLog != null && DebugLog.Value)
                     Log.LogWarning("ApplyAgmTDragReduction: " + ex.Message);
             }
-        }
-
-        /// <summary>GS25 fallback: conventional HE that still explodes (never silent fizzle).</summary>
-        internal static void ForceAcnmConventionalBoom(Missile missile)
-        {
-            if (missile == null)
-                return;
-            try
-            {
-                EnsureConventionalWarhead(missile, 15f);
-                object wh = WarheadField != null ? WarheadField.GetValue(missile) : null;
-                if (wh != null && WhArmed != null)
-                    WhArmed.SetValue(wh, true);
-            }
-            catch { }
         }
 
         /// <summary>Miss / early terrain: fizzle self-destruct — Warhead.Armed=false skips nuke FX/Shockwave.</summary>
@@ -3279,22 +2644,18 @@ namespace WeXon
                 WeaponInfo info = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
                 if (info != null)
                 {
-                    // Never mutate shared vanilla WeaponInfo — that made [IAL]-only missiles look nuclear.
+                    // Never mutate shared vanilla WeaponInfo �?that made [IAL]-only missiles look nuclear.
                     // Instance blastYield + warhead FX above are enough for this missile's detonation.
                     bool cloneInfo = NukeInfoIds.Contains(info.GetInstanceID())
                         || IsIalNukeCloneInfo(info)
-                        || IsTgm85CNuclearInfo(info)
                         || (info.name != null && info.name.IndexOf("_IAL", StringComparison.OrdinalIgnoreCase) >= 0);
                     if (cloneInfo)
                     {
                         if (SetNuclearFlag.Value)
                             info.nuclear = true;
                         info.blastDamage = GetIalNukeBlastYield();
-                        if (!IsTgm85CNuclearInfo(info) && !IsKh85WeaponInfo(info))
-                        {
-                            NukeInfoIds.Add(info.GetInstanceID());
-                            ApplyWeaponInfoFlags(info, true);
-                        }
+                        NukeInfoIds.Add(info.GetInstanceID());
+                        ApplyWeaponInfoFlags(info, true);
                     }
                 }
 
@@ -3316,9 +2677,7 @@ namespace WeXon
                     info = InfoField.GetValue(missile) as WeaponInfo;
             }
             catch { }
-            bool cloneInfo = IsIalNukeCloneInfo(info)
-                || IsTgm85CNuclearInfo(info)
-                || IsTgm85CNuclearMissile(missile);
+            bool cloneInfo = IsIalNukeCloneInfo(info);
             bool ownerMatch = false;
             try
             {
@@ -3338,7 +2697,7 @@ namespace WeXon
                 missile == null,
                 PendingNukeSpawns,
                 IsGunShellMissile(missile),
-                AgmTWeapon.ShouldBlockIalPendingNuke(missile) || Aam2CvWeapon.IsAam2CvMissile(missile),
+                AgmTWeapon.ShouldBlockIalPendingNuke(missile),
                 age,
                 cloneInfo,
                 ownerMatch,
@@ -3352,20 +2711,7 @@ namespace WeXon
                 return;
             }
             if (path != PendingNukeGateService.Path.Consume)
-            {
-                if (path == PendingNukeGateService.Path.Skip
-                    && missile != null
-                    && DebugLog != null && DebugLog.Value
-                    && PendingNukeSpawns > 0
-                    && !IsGunShellMissile(missile))
-                {
-                    if (AgmTWeapon.ShouldBlockIalPendingNuke(missile))
-                        Log.LogInfo("Skip pending nuke on AGM-T related: " + missile.name);
-                    else if (!cloneInfo || !(ownerMatch || PendingNukeGateService.IsFreshFire(age)))
-                        Log.LogInfo("Skip pending nuke on non-IAL spawn: " + missile.name);
-                }
                 return;
-            }
 
             PendingNukeSpawns--;
             ApplyNukeForced(missile, reason + "+pending");
@@ -3376,69 +2722,7 @@ namespace WeXon
             }
         }
 
-        /// <summary>
-        /// Eyeball / AGM_scanner recon — TargetDetector datalink pod, not a warhead missile.
-        /// </summary>
-        internal static bool IsScannerReconMissile(Missile missile)
-        {
-            if (missile == null)
-                return false;
-            if (MissileClassifyGateService.IsScannerReconName(missile.name))
-                return true;
-            try
-            {
-                if (missile.definition != null)
-                {
-                    if (MissileClassifyGateService.IsScannerReconName(missile.definition.jsonKey)
-                        || MissileClassifyGateService.IsScannerReconName(missile.definition.unitName)
-                        || MissileClassifyGateService.IsScannerReconName(missile.definition.name))
-                        return true;
-                }
-            }
-            catch { }
-            try
-            {
-                WeaponInfo info = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
-                if (IsScannerReconInfo(info))
-                    return true;
-            }
-            catch { }
-            // Do NOT GetComponent<TargetDetector> here — FixedUpdate hot path; name/key is enough.
-            return false;
-        }
-
-        internal static bool IsScannerReconInfo(WeaponInfo info)
-        {
-            if (info == null)
-                return false;
-            string n = ((info.weaponName != null ? info.weaponName : string.Empty) + " "
-                + (info.shortName != null ? info.shortName : string.Empty) + " "
-                + (info.name != null ? info.name : string.Empty));
-            return MissileClassifyGateService.IsScannerReconName(n);
-        }
-
-        /// <summary>
-        /// OpticalSeeker / LaserSeeker AGMs — use light MM (not strip). Kept for call-site clarity.
-        /// </summary>
-        internal static bool IsOpticalFamilyMmExcluded(Missile missile)
-        {
-            // No longer excludes from MM — light path handles hitch. Always false for strip gates.
-            return false;
-        }
-
-        internal static bool IsOpticalOrLaserMissile(Missile missile)
-        {
-            if (missile == null)
-                return false;
-            try
-            {
-                MissileSeeker s = SeekerField != null ? SeekerField.GetValue(missile) as MissileSeeker : null;
-                return MissileClassifyGateService.IsOpticalOrLaserSeeker(s);
-            }
-            catch { return false; }
-        }
-
-        /// <summary>Strip MultiModeBrain if one was attached to a gun shell / TBM / cruise / AGM-T bus / scanner by mistake.</summary>
+        /// <summary>Strip MultiModeBrain if one was attached to a gun shell / TBM / cruise / AGM-T bus by mistake.</summary>
         internal static void StripIncompatibleBrain(Missile missile)
         {
             if (missile == null)
@@ -3446,12 +2730,15 @@ namespace WeXon
             bool shell = IsGunShellMissile(missile);
             bool ballistic = IsBallisticMissile(missile);
             bool cruise = IsCruiseMissile(missile);
-            bool scanner = IsScannerReconMissile(missile);
             bool agmT = false;
-            try { agmT = AgmTWeapon.HasBusDispenser(missile) || AgmTWeapon.IsAgmTMissile(missile)
-                || AgmTWeapon.IsGs25Submunition(missile); }
+            try
+            {
+                agmT = LooksLikePackMissile(missile)
+                    || AgmTWeapon.HasBusDispenser(missile)
+                    || AgmTWeapon.IsAgmTMissile(missile);
+            }
             catch { }
-            if (!MissileClassifyGateService.ShouldStripIncompatibleBrain(shell, ballistic, cruise, agmT, scanner, false))
+            if (!MissileClassifyGateService.ShouldStripIncompatibleBrain(shell, ballistic, cruise, agmT))
                 return;
             try
             {
@@ -3462,17 +2749,12 @@ namespace WeXon
                 if (shell && missile.rb != null && missile.startingVelocity.sqrMagnitude > 100f
                     && missile.rb.velocity.sqrMagnitude < missile.startingVelocity.sqrMagnitude * 0.05f)
                     missile.rb.velocity = missile.startingVelocity;
-                // Restore TBM gLimit. F9 drop uses a modest cap; loft TBM stays 0.
+                // Restore TBM gLimit=0 (unlimited) if MM raised it
                 if (ballistic)
                 {
                     FieldInfo gLim = AccessTools.Field(typeof(Missile), "gLimit");
                     if (gLim != null)
-                    {
-                        float g = F9DropMark.HasTbm(missile)
-                            ? StrategicArsenalMathService.F9TbmGLimit
-                            : 0f;
-                        gLim.SetValue(missile, g);
-                    }
+                        gLim.SetValue(missile, 0f);
                 }
             }
             catch { }
@@ -3482,17 +2764,6 @@ namespace WeXon
         /// Cruise / terrain-following seekers — MM GuideTo overwrites TerrainWaypoint every tick.
         /// </summary>
         internal static bool IsCruiseMissile(Missile missile)
-        {
-            if (missile == null)
-                return false;
-            byte flags;
-            if (TryGetFlightClass(missile, out flags))
-                return (flags & MissileFlightClassCache.Cruise) != 0;
-            return ResolveFlightClass(missile, out flags)
-                && (flags & MissileFlightClassCache.Cruise) != 0;
-        }
-
-        internal static bool IsCruiseMissileUncached(Missile missile)
         {
             if (missile == null)
                 return false;
@@ -3520,319 +2791,26 @@ namespace WeXon
             return MissileClassifyGateService.IsCruiseMissileName(n);
         }
 
-        /// <summary>
-        /// TGM-85 profiles that own aimpoints (C sea-skim, E loft/dive, S hyper).
-        /// MultiMode must not GuideTo — it flattens those trajectories.
-        /// A/B/D still use normal MultiMode GuideTo + sticky lock.
-        /// Hot path: cached Kh85Kind (no GetComponent-string each call).
-        /// </summary>
+        /// <summary>TGM-85 is owned by VeyrnWeapons. Name-blob only so IAL / TBM / fuze skip it.</summary>
         internal static bool IsKh85CTerrainMissile(Missile missile)
         {
-            return GetKh85Kind(missile) == Kh85Kind.TerrainAim;
-        }
-
-        /// <summary>Cached Kh85 classification; resolves once (short Unresolved window for late stamps).</summary>
-        internal static Kh85Kind GetKh85Kind(Missile missile)
-        {
-            if (missile == null)
-                return Kh85Kind.NotKh85;
-            int id = missile.GetInstanceID();
-            byte cached;
-            if (Kh85KindByMissileId.TryGetValue(id, out cached))
-            {
-                if (cached == (byte)Kh85Kind.TerrainAim
-                    || cached == (byte)Kh85Kind.MultiMode
-                    || cached == (byte)Kh85Kind.NotKh85)
-                    return (Kh85Kind)cached;
-                // Unresolved: re-resolve until stamp / age window closes.
-            }
-
-            Kh85Kind kind = ResolveKh85KindUncached(missile);
-            if (kind == Kh85Kind.TerrainAim || kind == Kh85Kind.MultiMode)
-            {
-                Kh85KindByMissileId[id] = (byte)kind;
-                MaybePruneKh85KindCache();
-                return kind;
-            }
-
-            float age = 0f;
-            try { age = missile.timeSinceSpawn; }
-            catch { }
-            // Late VariantTag / brain stamp — keep probing. Bare "TGM-85" is Unresolved
-            // until C/A/B/D/E/S is stamped; never freeze that as MultiMode.
-            if (kind == Kh85Kind.Unresolved || age < 0.85f)
-            {
-                Kh85KindByMissileId[id] = (byte)Kh85Kind.Unresolved;
-                return Kh85Kind.Unresolved;
-            }
-
-            Kh85KindByMissileId[id] = (byte)Kh85Kind.NotKh85;
-            MaybePruneKh85KindCache();
-            return Kh85Kind.NotKh85;
-        }
-
-        private static void MaybePruneKh85KindCache()
-        {
-            if (Time.unscaledTime < _nextKh85KindPrune)
-                return;
-            _nextKh85KindPrune = Time.unscaledTime + 30f;
-            if (Kh85KindByMissileId.Count > 256)
-                Kh85KindByMissileId.Clear();
-        }
-
-        /// <summary>Full string-GetComponent / jsonKey resolve (once per missile, not per frame).</summary>
-        private static Kh85Kind ResolveKh85KindUncached(Missile missile)
-        {
-            if (missile == null)
-                return Kh85Kind.NotKh85;
-            bool sawKh85 = false;
-            try
-            {
-                // Component type names from Kh85MT.dll — name check avoids a hard reference.
-                if (missile.GetComponent("Kh85AEcmBrain") != null
-                    || missile.GetComponent("Kh85BEcmBrain") != null
-                    || missile.GetComponent("Kh85DArmBrain") != null)
-                    return Kh85Kind.MultiMode;
-                if (missile.GetComponent("Kh85CFlightBrain") != null
-                    || missile.GetComponent("Kh85EDecoyBrain") != null
-                    || missile.GetComponent("Kh85SHyperBrain") != null)
-                    return Kh85Kind.TerrainAim;
-                if (missile.GetComponent("Kh85VariantTag") != null)
-                {
-                    sawKh85 = true;
-                    Component tag = missile.GetComponent("Kh85VariantTag");
-                    FieldInfo lf = tag != null ? AccessTools.Field(tag.GetType(), "Letter") : null;
-                    if (lf != null)
-                    {
-                        string letter = lf.GetValue(tag) as string;
-                        byte k = Kh85GuideGateService.KindFromLetter(letter);
-                        if (k == Kh85GuideGateService.KindMultiMode)
-                            return Kh85Kind.MultiMode;
-                        if (k == Kh85GuideGateService.KindTerrainAim)
-                            return Kh85Kind.TerrainAim;
-                    }
-                }
-            }
-            catch { }
-            try
-            {
-                if (missile.definition != null && !string.IsNullOrEmpty(missile.definition.jsonKey))
-                {
-                    bool saw;
-                    byte jk = Kh85GuideGateService.KindFromJsonKey(missile.definition.jsonKey, out saw);
-                    if (saw)
-                    {
-                        sawKh85 = true;
-                        if (jk == Kh85GuideGateService.KindMultiMode)
-                            return Kh85Kind.MultiMode;
-                        if (jk == Kh85GuideGateService.KindTerrainAim)
-                            return Kh85Kind.TerrainAim;
-                    }
-                }
-            }
-            catch { }
-            try
-            {
-                string n = missile.NetworkunitName;
-                bool saw;
-                byte nk = Kh85GuideGateService.KindFromDisplayName(n, out saw);
-                if (nk == Kh85GuideGateService.KindTerrainAim)
-                    return Kh85Kind.TerrainAim;
-                if (nk == Kh85GuideGateService.KindMultiMode)
-                    return Kh85Kind.MultiMode;
-                if (saw)
-                    sawKh85 = true;
-            }
-            catch { }
-            if (!sawKh85)
-            {
-                try
-                {
-                    string un = missile.definition != null ? missile.definition.unitName : null;
-                    bool saw;
-                    Kh85GuideGateService.KindFromDisplayName(un, out saw);
-                    if (saw)
-                        sawKh85 = true;
-                }
-                catch { }
-            }
-            if (!sawKh85)
-            {
-                try
-                {
-                    WeaponInfo info = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
-                    if (info != null)
-                    {
-                        string wn = ((info.weaponName != null ? info.weaponName : string.Empty) + " "
-                            + (info.shortName != null ? info.shortName : string.Empty) + " "
-                            + (info.name != null ? info.name : string.Empty));
-                        if (Kh85GuideGateService.WeaponBlobLooksKh85(wn))
-                            sawKh85 = true;
-                    }
-                }
-                catch { }
-            }
-            byte fin = Kh85GuideGateService.FinalizeKind(sawKh85);
-            if (fin == Kh85GuideGateService.KindTerrainAim)
-                return Kh85Kind.TerrainAim;
-            if (fin == Kh85GuideGateService.KindMultiMode)
-                return Kh85Kind.MultiMode;
-            if (sawKh85)
-                return Kh85Kind.Unresolved;
-            return Kh85Kind.NotKh85;
-        }
-
-        /// <summary>Stamped, unresolved, or fire-window donor — TGM-85 family including pre-stamp.</summary>
-        internal static bool IsKh85Family(Missile missile)
-        {
-            if (missile == null)
-                return false;
-            Kh85Kind k = GetKh85Kind(missile);
-            if (k == Kh85Kind.TerrainAim || k == Kh85Kind.MultiMode || k == Kh85Kind.Unresolved)
-                return true;
-            return IsLikelyUnstampedKh85Launch(missile);
-        }
-
-        private static bool IsKh85LetterToken(string rest, string letter)
-        {
-            return Kh85GuideGateService.IsLetterToken(rest, letter);
+            return LooksLikeKh85Missile(missile);
         }
 
         internal static bool IsKh85Missile(Missile missile)
         {
-            if (missile == null)
-                return false;
-            Kh85Kind k = GetKh85Kind(missile);
-            return k == Kh85Kind.TerrainAim || k == Kh85Kind.MultiMode;
+            return LooksLikeKh85Missile(missile);
         }
-
-        /// <summary>
-        /// F1 "vanilla backup": stock AAM/AGM/SAM use vanilla seeker + fuze + collision.
-        /// Custom WeXon weapons keep their own guidance.
-        /// </summary>
-        internal static bool VanillaBackupApplies(Missile missile)
-        {
-            if (VanillaMissileBackup == null || !VanillaMissileBackup.Value)
-                return false;
-            if (missile == null)
-                return true;
-            try
-            {
-                if (IsKh85Missile(missile) || IsLikelyUnstampedKh85Launch(missile))
-                    return false;
-                if (AgmTWeapon.HasBusDispenser(missile) || AgmTWeapon.IsAgmTMissile(missile)
-                    || AgmTWeapon.IsPoweredGs25Sub(missile))
-                    return false;
-                if (Aam2CvWeapon.IsAam2CvMissile(missile))
-                    return false;
-                if (IsBallisticMissile(missile) || IsCruiseMissile(missile))
-                    return false;
-                if (IsGunShellMissile(missile) || IsMotorlessProjectile(missile))
-                    return false;
-            }
-            catch { }
-            return true;
-        }
-
-        /// <summary>
-        /// Seeker.Initialize often runs inside SpawnMissile.SetTarget BEFORE Kh85MT OnSpawned
-        /// stamps VariantTag. Reflect Kh85MT sticky fire context so MM does not GuideTo a
-        /// still-AGM donor and slam into terrain (looks like instant vanish).
-        /// </summary>
-        private static Type _kh85WeaponType;
-        private static bool _kh85WeaponTypeResolved;
-        private static FieldInfo _kh85LastFireKey;
-        private static FieldInfo _kh85LastFireTime;
-        private static FieldInfo _kh85LastFireOwner;
 
         internal static bool IsLikelyUnstampedKh85Launch(Missile missile)
         {
-            if (missile == null)
-                return false;
-            // Fire-context window only — never AccessTools.TypeByName on aged AGMs.
-            float age = 0f;
-            try { age = missile.timeSinceSpawn; }
-            catch { }
-            if (age > 2.5f)
-                return false;
-            if (IsKh85Missile(missile))
-                return true;
-            try
-            {
-                if (!_kh85WeaponTypeResolved)
-                {
-                    _kh85WeaponTypeResolved = true;
-                    _kh85WeaponType = AccessTools.TypeByName("Kh85MT.Kh85Weapon");
-                    if (_kh85WeaponType != null)
-                    {
-                        _kh85LastFireKey = AccessTools.Field(_kh85WeaponType, "_lastFireKey");
-                        _kh85LastFireTime = AccessTools.Field(_kh85WeaponType, "_lastFireTime");
-                        _kh85LastFireOwner = AccessTools.Field(_kh85WeaponType, "_lastFireOwner");
-                    }
-                }
-                if (_kh85WeaponType == null || _kh85LastFireKey == null || _kh85LastFireTime == null)
-                    return false;
-                string key = _kh85LastFireKey.GetValue(null) as string;
-                if (string.IsNullOrEmpty(key)
-                    || !key.StartsWith("Kh85MT", StringComparison.OrdinalIgnoreCase))
-                    return false;
-                float t = 0f;
-                try { t = Convert.ToSingle(_kh85LastFireTime.GetValue(null)); }
-                catch { return false; }
-                if (Time.time > t + 2.5f)
-                    return false;
-                Unit owner = _kh85LastFireOwner != null
-                    ? _kh85LastFireOwner.GetValue(null) as Unit
-                    : null;
-                Unit mOwner = null;
-                try { mOwner = missile.owner; }
-                catch { }
-                if (owner != null && mOwner != null && !object.ReferenceEquals(owner, mOwner))
-                    return false;
-                return true;
-            }
-            catch { return false; }
+            return false;
         }
 
-        /// <summary>TGM-85 LOAL: no free-hunt until 1.6 s after spawn. Player locks skip.</summary>
-        internal static bool Kh85LoalHuntDelayActive(Missile missile, bool playerOrSticky)
-        {
-            if (missile == null || playerOrSticky)
-                return false;
-            if (!IsKh85Family(missile))
-                return false;
-            float age = 0f;
-            try { age = missile.timeSinceSpawn; }
-            catch { return true; }
-            return Kh85GuideGateService.LoalHuntDelayActive(true, false, age);
-        }
-
-        /// <summary>True when MultiMode must not GuideTo yet (Kh85MT owns aim / stamp pending).</summary>
         internal static bool ShouldDeferKh85GuideTo(Missile missile)
         {
-            if (missile == null)
-                return false;
-            Kh85Kind kind = GetKh85Kind(missile);
-            float age = 0f;
-            try { age = missile.timeSinceSpawn; }
-            catch { age = 0f; }
-            float spd = 0f;
-            try
-            {
-                if (missile.rb != null)
-                    spd = missile.rb.velocity.magnitude;
-            }
-            catch { }
-            float minSpd = MinGuideSpeedMps != null ? MinGuideSpeedMps.Value : 90f;
-            return Kh85GuideGateService.ShouldDeferGuideTo(
-                false,
-                (byte)kind,
-                kind == Kh85Kind.NotKh85 && IsLikelyUnstampedKh85Launch(missile),
-                age,
-                spd,
-                minSpd);
+            return false;
         }
-
         /// <summary>Rockets / unguided nuke rockets — keep vanilla; MM free-hunt breaks them.</summary>
         internal static bool IsRocketOrUnguidedName(string n)
         {
@@ -3849,17 +2827,6 @@ namespace WeXon
         }
 
         internal static bool IsBallisticMissile(Missile missile)
-        {
-            if (missile == null)
-                return false;
-            byte flags;
-            if (TryGetFlightClass(missile, out flags))
-                return (flags & MissileFlightClassCache.Ballistic) != 0;
-            return ResolveFlightClass(missile, out flags)
-                && (flags & MissileFlightClassCache.Ballistic) != 0;
-        }
-
-        internal static bool IsBallisticMissileUncached(Missile missile)
         {
             if (missile == null)
                 return false;
@@ -3917,45 +2884,26 @@ namespace WeXon
                 return;
             TbmHuntAssist assist = missile.GetComponent<TbmHuntAssist>();
             if (assist == null)
-                assist = TryAddBehaviour<TbmHuntAssist>(missile.gameObject);
-            if (assist == null)
-                return;
+                assist = missile.gameObject.AddComponent<TbmHuntAssist>();
             assist.Setup(missile);
         }
 
         /// <summary>
-        /// Skip seeker SlowChecks / MissedTarget / LosingGround / low-speed airburst for the
-        /// whole guided flight. Hits and proximity still detonate. Shells and unguided rockets
-        /// keep vanilla SD.
+        /// Suppress burnout self-destruct only while brain has a live engageable target.
+        /// Coasting / no-target must NOT suppress — otherwise missiles loft forever.
         /// </summary>
         internal static bool ShouldSuppressSeekerSelfDestruct(Missile missile)
         {
             if (missile == null)
                 return false;
-            return SeekerIffGateService.ShouldSuppressSeekerSelfDestruct(
-                IsGunShellMissile(missile),
-                IsUnguidedRocketMissile(missile));
-        }
-
-        internal static bool IsUnguidedRocketMissile(Missile missile)
-        {
-            if (missile == null)
-                return false;
-            string jsonKey = null;
-            string unitName = null;
-            string defName = null;
-            try
-            {
-                if (missile.definition != null)
-                {
-                    jsonKey = missile.definition.jsonKey;
-                    unitName = missile.definition.unitName;
-                    defName = missile.definition.name;
-                }
-            }
-            catch { }
-            return MissileClassifyGateService.IsRocketOrUnguidedMissile(
-                missile.name, jsonKey, unitName, defName);
+            bool agmTBus = AgmTWeapon.HasBusDispenser(missile) && !AgmTDispenser.IsSafeDiscard(missile);
+            bool kh85 = LooksLikeKh85Missile(missile);
+            MultiModeBrain brain = MultiModeBrain.Find(missile);
+            bool brainHunt = brain != null && brain.HasActiveHuntTarget;
+            if (SeekerIffGateService.ShouldSuppressSeekerSelfDestruct(
+                IsGunShellMissile(missile), IsRocketOrUnguidedMissile(missile)))
+                return agmTBus || kh85 || brainHunt;
+            return false;
         }
 
         // Low-speed self-destruct: fills gap when MultiMode suppresses vanilla SlowChecks
@@ -3973,15 +2921,12 @@ namespace WeXon
         {
             if (EnableLowSpeedSelfDestruct == null || !EnableLowSpeedSelfDestruct.Value)
                 return;
+#if ORITASY_COMBINED
+            // Escalation 30fps budget: low-speed SD is polish; skip on LowEnd.
+            if (Oritasy.PerfMode.IsLow)
+                return;
+#endif
             if (missile == null || missile.disabled)
-                return;
-            Kh85Kind sdKind = GetKh85Kind(missile);
-            if (sdKind == Kh85Kind.TerrainAim || sdKind == Kh85Kind.MultiMode
-                || sdKind == Kh85Kind.Unresolved || IsLikelyUnstampedKh85Launch(missile))
-                return;
-            // LOAL / live hunt: vanilla SlowChecks already skipped; do not airburst
-            // after burnout just because speed bled off on a long shot.
-            if (ShouldSuppressSeekerSelfDestruct(missile))
                 return;
 
             int id = missile.GetInstanceID();
@@ -4019,10 +2964,6 @@ namespace WeXon
             float minAgeBase = LowSpeedSelfDestructMinAge != null ? LowSpeedSelfDestructMinAge.Value : 3.5f;
             // Cheap min-age gate before ballistic name scans.
             if (age < minAgeBase)
-                return;
-            // RAM-45 / R9 VLS: dummy motor then delayed sustain. Remaining burn can read 0
-            // between stages and false-trigger after the 3.5s floor.
-            if (age < 12f && IsVlsSoftLaunchMissile(missile))
                 return;
             float bMin = LowSpeedSelfDestructBallisticMinAge != null
                 ? LowSpeedSelfDestructBallisticMinAge.Value : 12f;
@@ -4112,52 +3053,6 @@ namespace WeXon
 
         internal static void SetupMultiMode(Missile missile, MissileSeeker caller, Unit target, GlobalPosition aimpoint)
         {
-            if (missile == null)
-                return;
-            if (VanillaBackupApplies(missile))
-            {
-                StripIncompatibleBrain(missile);
-                return;
-            }
-            // C/E/S (and unstamped TGM-85) own aim. MM optical GuideTo dives them into
-            // terrain — 175C never attached a GuideTo brain to those profiles.
-            Kh85Kind setupKind = GetKh85Kind(missile);
-            if (setupKind == Kh85Kind.TerrainAim || setupKind == Kh85Kind.Unresolved
-                || IsLikelyUnstampedKh85Launch(missile))
-            {
-                try
-                {
-                    MultiModeBrain khBrain = MultiModeBrain.Find(missile);
-                    if (khBrain == null)
-                        khBrain = missile.GetComponent<MultiModeBrain>();
-                    if (khBrain != null)
-                        UnityEngine.Object.Destroy(khBrain);
-                }
-                catch { }
-                return;
-            }
-            // Naval missiles keep vanilla seekers (SARH illumination, no MM GuideTo).
-            // Aircraft shots must never inherit a ship stamp (carrier / pending VLS fire).
-            if (IsShipLaunchedMissile(missile) && !ShipMissileService.IsAircraftSide(missile.owner))
-            {
-                StripIncompatibleBrain(missile);
-                return;
-            }
-            // SARH needs the illuminator; MM GuideTo / IFF hunt would drop lock and airburst.
-            if (caller is SARHSeeker)
-            {
-                StripIncompatibleBrain(missile);
-                return;
-            }
-            try
-            {
-                if (missile.GetComponent<SARHSeeker>() != null)
-                {
-                    StripIncompatibleBrain(missile);
-                    return;
-                }
-            }
-            catch { }
             WeaponInfo infoCheck = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
             string wn = string.Empty;
             if (infoCheck != null)
@@ -4172,15 +3067,15 @@ namespace WeXon
                 EnableMultiMode.Value,
                 IsMissileAllowed(missile),
                 IsGunShellMissile(missile),
-                AgmTWeapon.HasBusDispenser(missile) || AgmTWeapon.IsAgmTMissile(missile)
-                    || AgmTWeapon.IsGs25Submunition(missile),
+                LooksLikePackMissile(missile)
+                    || AgmTWeapon.HasBusDispenser(missile)
+                    || AgmTWeapon.IsAgmTMissile(missile),
                 IsGunShellSeeker(caller),
                 IsBallisticMissile(missile) || caller is BallisticMissileGuidance,
                 IsCruiseMissile(missile) || caller is OpticalSeekerCruiseMissile,
                 IsRocketOrUnguidedName(missile != null ? missile.name : null),
                 IsRocketOrUnguidedName(wn) || IsBallisticMissileName(wn),
-                seekerMismatch,
-                IsScannerReconMissile(missile) || IsScannerReconInfo(infoCheck));
+                seekerMismatch);
 
             if (path == MultiModeSetupGateService.Path.StripAgmT)
             {
@@ -4190,60 +3085,19 @@ namespace WeXon
             if (path != MultiModeSetupGateService.Path.AllowAttach)
                 return;
 
-            // Optional CPU cut: optical/laser skip MultiModeBrain (disables LOAL). Default ON for LOAL.
-            MissileSeeker mmSeeker = caller != null ? caller : primary;
-            if (EnableOpticalMultiMode != null && !EnableOpticalMultiMode.Value
-                && MissileClassifyGateService.IsOpticalOrLaserSeeker(mmSeeker)
-                && !(mmSeeker is OpticalSeekerCruiseMissile)
-                && !(mmSeeker is OpticalSeekerShell))
-            {
-                StripIncompatibleBrain(missile);
-                return;
-            }
-
             MultiModeBrain brain = MultiModeBrain.Find(missile);
             if (brain == null)
                 brain = missile.GetComponent<MultiModeBrain>();
             if (brain == null)
-                brain = TryAddBehaviour<MultiModeBrain>(missile.gameObject);
-            if (brain == null)
-                return;
+                brain = missile.gameObject.AddComponent<MultiModeBrain>();
             brain.Setup(missile, caller != null ? caller : primary, target, aimpoint);
-        }
-
-        /// <summary>
-        /// Packed Core.bin: Unity may reject extra payload MonoBehaviours.
-        /// Catch + log so Seeker.Initialize postfix still finishes (IFF etc.).
-        /// </summary>
-        internal static T TryAddBehaviour<T>(GameObject go) where T : MonoBehaviour
-        {
-            if (go == null)
-                return null;
-            T c = null;
-            try { c = go.GetComponent<T>(); }
-            catch { c = null; }
-            if (c != null)
-                return c;
-            try
-            {
-                c = go.AddComponent<T>();
-            }
-            catch (Exception ex)
-            {
-                if (Log != null)
-                    Log.LogWarning("AddComponent " + typeof(T).Name + ": " + ex.Message);
-                return null;
-            }
-            if (c == null && Log != null)
-                Log.LogWarning("AddComponent " + typeof(T).Name + " returned null");
-            return c;
         }
 
         internal static FactionHQ GetHq(Unit unit)
         {
             if (unit == null)
                 return null;
-            // 175C: buildings / ground often have MapHQ while NetworkHQ is still null.
+            // Buildings / ground units often have MapHQ while NetworkHQ is still null.
             FactionHQ hq = null;
             try { hq = unit.NetworkHQ; }
             catch { }
@@ -4295,27 +3149,6 @@ namespace WeXon
         }
 
         /// <summary>
-        /// Unaligned (null HQ) or Neutral faction. LOAL must not treat these as hostiles
-        /// just because they are not the shooter's HQ.
-        /// </summary>
-        internal static bool IsNeutralHq(FactionHQ hq)
-        {
-            if (hq == null)
-                return true;
-            string objName = null;
-            string facName = null;
-            try { objName = hq.name; }
-            catch { }
-            try
-            {
-                if (hq.faction != null)
-                    facName = hq.faction.factionName;
-            }
-            catch { }
-            return SeekerIffGateService.IsNeutralFactionLabel(objName, facName);
-        }
-
-        /// <summary>
         /// Ejected crew / parachuting pilots (Unit = PilotDismounted). Missiles must never
         /// free-hunt, re-lock, or GuideTo these — chasing pilots after a kill is wrong.
         /// </summary>
@@ -4338,18 +3171,6 @@ namespace WeXon
             }
             catch { }
             return false;
-        }
-
-        /// <summary>
-        /// TGM-85E decoy: IFF normally rejects missiles as lock targets, which
-        /// would undo lock-steal onto the decoy (especially SARH targetTransform).
-        /// </summary>
-        internal static bool IsKh85EDecoy(Unit unit)
-        {
-            if (unit == null)
-                return false;
-            try { return unit.GetComponent("Kh85EDecoyBrain") != null; }
-            catch { return false; }
         }
 
         /// <summary>
@@ -4378,8 +3199,16 @@ namespace WeXon
                     return false;
             }
             catch { }
-            if (candidate is Missile && !IsKh85EDecoy(candidate))
-                return false;
+            if (candidate is Missile)
+            {
+                Missile shot = candidate as Missile;
+                if (shot == null)
+                    return false;
+                if (IsLocalHumanShooter(shooterSide))
+                    return false;
+                if (!IsPlayerLaunchedMissile(shot))
+                    return false;
+            }
             if (!IsUnitAlive(candidate))
                 return false;
             if (candidate is Scenery)
@@ -4388,15 +3217,64 @@ namespace WeXon
             if (!EnableIff.Value)
                 return true;
 
-            // 175C SetTarget: only reject confirmed same-faction. Incomplete HQ is
-            // hunt-gated in IsHostileHuntTarget — blocking it here also blocked
-            // TGM-85 ApplyTargetLock and the cruise seeker then self-destructed.
+            // Confirmed same faction — never allow
             return SeekerIffGateService.SoftIffAllows(true, IsSameFaction(shooterSide, candidate));
         }
 
         /// <summary>
-        /// Strict hostility for free-hunt (175C): both sides must have HQ and be different HQ objects.
-        /// Incomplete HQ is not hunted — that is what kept nearest friendly hangars from winning LOAL.
+        /// Local player's own missiles must not lock other missiles. Opposing AI
+        /// interceptors may lock missiles the local human launched.
+        /// </summary>
+        internal static bool IsPlayerLaunchedMissile(Missile m)
+        {
+            if (m == null)
+                return false;
+            try
+            {
+                if (m.disabled)
+                    return false;
+            }
+            catch { return false; }
+
+            Unit owner = null;
+            try { owner = m.owner; }
+            catch { owner = null; }
+            if (owner == null)
+            {
+                try
+                {
+                    Unit resolved;
+                    if (UnitRegistry.TryGetUnit(m.ownerID, out resolved))
+                        owner = resolved;
+                }
+                catch { }
+            }
+            return IsLocalHumanShooter(owner);
+        }
+
+        internal static bool IsLocalHumanShooter(Unit shooter)
+        {
+            if (shooter == null)
+                return false;
+            Aircraft ac = shooter as Aircraft;
+            if (ac == null)
+            {
+                try { ac = shooter.GetComponentInParent<Aircraft>(); }
+                catch { ac = null; }
+            }
+            if (ac == null)
+                return false;
+            Player p = null;
+            try { p = ac.Player; }
+            catch { p = null; }
+            if (p == null)
+                return false;
+            return IsLocalHumanPlayer(p);
+        }
+
+        /// <summary>
+        /// Strict hostility for free-hunt: both sides must have HQ and be different factions.
+        /// Prevents chasing nearest friendly when missile/owner HQ resolution is incomplete.
         /// </summary>
         internal static bool IsHostileHuntTarget(Missile missile, Unit candidate)
         {
@@ -4412,8 +3290,6 @@ namespace WeXon
                 return false;
             if (candidate is Missile)
                 return false;
-            if (IsJunkHuntTarget(candidate))
-                return false;
 
             if (!EnableIff.Value)
             {
@@ -4425,8 +3301,6 @@ namespace WeXon
 
             FactionHQ shootHq = GetShooterHq(missile);
             FactionHQ tgtHq = GetHq(candidate);
-            if (IsNeutralHq(shootHq) || IsNeutralHq(tgtHq))
-                return false;
             return SeekerIffGateService.StrictHuntAllows(
                 true,
                 false,
@@ -4435,128 +3309,63 @@ namespace WeXon
                 shootHq != null && tgtHq != null && object.ReferenceEquals(shootHq, tgtHq));
         }
 
-        /// <summary>
-        /// LOAL hunt: only opposing combat HQs. Container, Neutral/unaligned (null HQ),
-        /// and friendlies are out of the search set.
-        /// </summary>
-        internal static bool IsLoalHuntTarget(Missile missile, Unit candidate)
-        {
-            if (missile == null || candidate == null)
-                return false;
-            if (candidate is Container)
-                return false;
-            if (IsJunkHuntTarget(candidate))
-                return false;
-            return IsHostileHuntTarget(missile, candidate);
-        }
-
-        internal static float LoalTargetValueM(Unit u)
-        {
-            if (u == null)
-                return 0f;
-            try
-            {
-                UnitDefinition def = u.definition;
-                if (def != null)
-                    return def.value;
-            }
-            catch { }
-            return 0f;
-        }
-
-        /// <summary>
-        /// ACM-119 / ACNM-118 GS25: reject confirmed friendlies only.
-        /// Strict hunt (both HQs) dropped incomplete-HQ ships/buildings after dispense,
-        /// so subs never SetAimpoint and flew straight.
-        /// </summary>
-        internal static bool IsAgmTEngageTarget(Missile missile, Unit candidate)
-        {
-            if (missile == null || candidate == null)
-                return false;
-            if (object.ReferenceEquals(candidate, missile)
-                || object.ReferenceEquals(candidate, missile.owner))
-                return false;
-            if (IsEjectedPilotUnit(candidate))
-                return false;
-            if (!IsUnitAlive(candidate))
-                return false;
-            if (candidate is Scenery || candidate is Missile)
-                return false;
-            if (IsJunkHuntTarget(candidate))
-                return false;
-            if (candidate is Container)
-                return false;
-            return IsHostileHuntTarget(missile, candidate);
-        }
-
-        /// <summary>
-        /// Camouflage nets / civilian decoy buildings: never auto-lock.
-        /// Player TGP on hangars / SAM / factories still works (those are not CIV).
-        /// </summary>
-        internal static bool IsJunkHuntTarget(Unit candidate)
-        {
-            if (candidate == null)
-                return false;
-            if (candidate is Scenery)
-                return true;
-            Building b = candidate as Building;
-            int buildingType = -1;
-            float valueM = -1f;
-            if (b != null)
-            {
-                try
-                {
-                    BuildingDefinition bd = candidate.definition as BuildingDefinition;
-                    if (bd != null)
-                    {
-                        buildingType = (int)bd.buildingType;
-                        valueM = bd.value;
-                    }
-                }
-                catch { }
-            }
-            string blob = UnitHuntNameBlob(candidate);
-            if (b != null)
-                return HuntJunkGateService.IsJunkHuntBuilding(buildingType, valueM, blob);
-            return HuntJunkGateService.IsJunkHuntName(blob);
-        }
-
-        internal static string UnitHuntNameBlob(Unit u)
-        {
-            if (u == null)
-                return string.Empty;
-            string n = u.name != null ? u.name : string.Empty;
-            try
-            {
-                if (u.definition != null)
-                {
-                    if (!string.IsNullOrEmpty(u.definition.unitName))
-                        n = n + " " + u.definition.unitName;
-                    if (!string.IsNullOrEmpty(u.definition.jsonKey))
-                        n = n + " " + u.definition.jsonKey;
-                    if (!string.IsNullOrEmpty(u.definition.name))
-                        n = n + " " + u.definition.name;
-                }
-            }
-            catch { }
-            return n;
-        }
-
-        /// <summary>
-        /// Lock already on the missile (vanilla spawn / datalink targetID).
-        /// Does NOT steal the aircraft TGP/radar primary — that was killing LOAL.
-        /// </summary>
-        internal static Unit ResolveMissileOwnTarget(Missile missile)
+        /// <summary>Player/AI lock from launching aircraft (primary target / WM list / missile.target / targetID).</summary>
+        /// <summary>Player/AI lock. Player shots: pilot primary wins over stale missile.target (LOAL must not override).</summary>
+        internal static Unit ResolveDesignatedTarget(Missile missile)
         {
             if (missile == null)
                 return null;
 
             Unit side = ResolveShooterSide(missile);
+            bool playerShot = IsLocalHumanShooter(side) || IsPlayerLaunchedMissile(missile);
+
+            Unit owner = missile.owner;
+            Aircraft ac = owner as Aircraft;
+            if (ac == null && owner != null)
+                ac = owner.GetComponentInParent<Aircraft>();
+
+            // Player: stick/radar lock first so LOAL free-hunt cannot outrank it.
+            if (playerShot && ac != null)
+            {
+                try
+                {
+                    if (ac.pilots != null)
+                    {
+                        for (int i = 0; i < ac.pilots.Length; i++)
+                        {
+                            Pilot p = ac.pilots[i];
+                            if (p == null)
+                                continue;
+                            Unit pt = p.GetPrimaryTarget();
+                            if (pt != null && IsDesignatedEngageable(missile, side, pt))
+                                return pt;
+                        }
+                    }
+                }
+                catch { }
+                try
+                {
+                    if (ac.weaponManager != null)
+                    {
+                        List<Unit> list = ac.weaponManager.GetTargetList();
+                        if (list != null)
+                        {
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                Unit u = list[i];
+                                if (u != null && IsDesignatedEngageable(missile, side, u))
+                                    return u;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
 
             try
             {
                 Unit mt = MissileTargetField != null ? MissileTargetField.GetValue(missile) as Unit : null;
-                if (mt != null && IsAllowedTarget(side, mt))
+                if (mt != null && IsDesignatedEngageable(missile, side, mt))
                     return mt;
             }
             catch { }
@@ -4567,147 +3376,68 @@ namespace WeXon
                 if (tid.IsValid)
                 {
                     Unit byId;
-                    if (UnitRegistry.TryGetUnit(tid, out byId) && IsAllowedTarget(side, byId))
+                    if (UnitRegistry.TryGetUnit(tid, out byId) && IsDesignatedEngageable(missile, side, byId))
                         return byId;
                 }
             }
             catch { }
 
-            return null;
-        }
-
-        /// <summary>Player/AI lock from launching aircraft (primary target / WM list / missile.target / targetID).</summary>
-        internal static Unit ResolveDesignatedTarget(Missile missile)
-        {
-            if (missile == null)
-                return null;
-
-            Unit own = ResolveMissileOwnTarget(missile);
-            if (own != null)
-                return own;
-
-            Unit side = ResolveShooterSide(missile);
-
-            Unit owner = missile.owner;
-            Aircraft ac = owner as Aircraft;
-            if (ac == null && owner != null)
-                ac = owner.GetComponentInParent<Aircraft>();
-            if (ac == null)
-                return null;
-
-            // Pilot primary lock (player stick/radar lock)
-            try
+            if (!playerShot && ac != null)
             {
-                if (ac.pilots != null)
+                try
                 {
-                    for (int i = 0; i < ac.pilots.Length; i++)
+                    if (ac.pilots != null)
                     {
-                        Pilot p = ac.pilots[i];
-                        if (p == null)
-                            continue;
-                        Unit pt = p.GetPrimaryTarget();
-                        if (pt != null && IsAllowedTarget(side, pt))
-                            return pt;
-                    }
-                }
-            }
-            catch { }
-
-            // WeaponManager shared target list
-            try
-            {
-                if (ac.weaponManager != null)
-                {
-                    List<Unit> list = ac.weaponManager.GetTargetList();
-                    if (list != null)
-                    {
-                        for (int i = 0; i < list.Count; i++)
+                        for (int i = 0; i < ac.pilots.Length; i++)
                         {
-                            Unit u = list[i];
-                            if (u != null && IsAllowedTarget(side, u))
-                                return u;
+                            Pilot p = ac.pilots[i];
+                            if (p == null)
+                                continue;
+                            Unit pt = p.GetPrimaryTarget();
+                            if (pt != null && IsDesignatedEngageable(missile, side, pt))
+                                return pt;
                         }
                     }
                 }
-            }
-            catch { }
-
-            return null;
-        }
-
-        /// <summary>
-        /// True fire-time lock only (missile target / pilot primary). WM contact list is not a lock.
-        /// </summary>
-        internal static Unit ResolveHardLockTarget(Missile missile)
-        {
-            if (missile == null)
-                return null;
-
-            Unit own = ResolveMissileOwnTarget(missile);
-            if (own != null)
-                return own;
-
-            Unit side = ResolveShooterSide(missile);
-            Unit owner = missile.owner;
-            Aircraft ac = owner as Aircraft;
-            if (ac == null && owner != null)
-                ac = owner.GetComponentInParent<Aircraft>();
-            if (ac == null)
-                return null;
-
-            try
-            {
-                if (ac.pilots != null)
+                catch { }
+                try
                 {
-                    for (int i = 0; i < ac.pilots.Length; i++)
+                    if (ac.weaponManager != null)
                     {
-                        Pilot p = ac.pilots[i];
-                        if (p == null)
-                            continue;
-                        Unit pt = p.GetPrimaryTarget();
-                        if (pt != null && IsAllowedTarget(side, pt))
-                            return pt;
+                        List<Unit> list = ac.weaponManager.GetTargetList();
+                        if (list != null)
+                        {
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                Unit u = list[i];
+                                if (u != null && IsDesignatedEngageable(missile, side, u))
+                                    return u;
+                            }
+                        }
                     }
                 }
+                catch { }
             }
-            catch { }
 
             return null;
         }
 
-        private static readonly Dictionary<int, float> NextIffEnforceAt = new Dictionary<int, float>(64);
-        private const float IffEnforceIntervalSec = 1.0f;
-
-        /// <summary>True when IFF enforce is due (also marks next slot). Seek uses this to skip work.</summary>
-        internal static bool IffEnforceDue(Missile missile)
+        /// <summary>Designated locks: soft IFF (Allowed) or strict hostile — never fail open to LOAL.</summary>
+        internal static bool IsDesignatedEngageable(Missile missile, Unit side, Unit candidate)
         {
-            if (missile == null)
+            if (candidate == null)
                 return false;
-            int id = missile.GetInstanceID();
-            float now = Time.unscaledTime;
-            float next;
-            if (NextIffEnforceAt.TryGetValue(id, out next) && now < next)
-                return false;
-            NextIffEnforceAt[id] = now + IffEnforceIntervalSec;
-            return true;
-        }
-
-        /// <summary>IFF at most 1 Hz per missile — Seek runs every physics frame.</summary>
-        internal static void EnforceIffThrottled(Missile missile)
-        {
-            if (!IffEnforceDue(missile))
-                return;
-            EnforceIffOnCurrentSeeker(missile);
+            if (IsAllowedTarget(side, candidate))
+                return true;
+            return IsHostileHuntTarget(missile, candidate);
         }
 
         internal static void EnforceIffOnCurrentSeeker(Missile missile)
         {
             if (missile == null || SeekerField == null)
                 return;
-            if (IsShipLaunchedMissile(missile))
-                return;
             MissileSeeker seeker = SeekerField.GetValue(missile) as MissileSeeker;
-            if (seeker == null || seeker is SARHSeeker)
+            if (seeker == null)
                 return;
             Unit side = ResolveShooterSide(missile);
             Unit tgt = SeekerTargetField != null ? SeekerTargetField.GetValue(seeker) as Unit : null;
@@ -4744,29 +3474,6 @@ namespace WeXon
             }
         }
 
-        /// <summary>
-        /// IR/ARH must not sticky-lock a TGP tank; optical/laser must not hunt aircraft.
-        /// Kh85 dual-role: any unit.
-        /// </summary>
-        internal static bool TargetFitsSeekerFamily(Missile missile, MissileSeeker seeker, Unit unit)
-        {
-            if (unit == null)
-                return false;
-            if (missile != null && IsKh85Missile(missile))
-                return true;
-            if (MissileLooksAirToAir(missile))
-            {
-                if (unit is GroundVehicle || unit is Building)
-                    return false;
-                return true;
-            }
-            if (IsSurfaceAttackSeeker(seeker))
-                return IsSurfaceUnit(unit);
-            if (unit is GroundVehicle || unit is Building)
-                return false;
-            return true;
-        }
-
         /// <summary>AGM-style seekers should free-hunt ground/naval units, not nearest aircraft.</summary>
         internal static bool IsSurfaceAttackSeeker(MissileSeeker seeker)
         {
@@ -4779,41 +3486,38 @@ namespace WeXon
                 || t.Name.IndexOf("Laser", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        internal static bool MissileLooksAirToAir(Missile missile)
+        /// <summary>IR / radar AAM — eligible for HOBS rear snap + recover (not AGM/cruise/TBM).</summary>
+        internal static bool IsAirToAirMissile(Missile missile, MissileSeeker primary)
         {
             if (missile == null)
                 return false;
-            string n = missile.name != null ? missile.name : string.Empty;
-            try
+            if (IsCruiseMissile(missile) || IsGunShellMissile(missile) || IsMotorlessProjectile(missile))
+                return false;
+            if (IsShipLaunchedMissile(missile))
+                return false;
+            try { if (AgmTWeapon.IsAgmTMissile(missile)) return false; } catch { }
+            if (primary != null && IsSurfaceAttackSeeker(primary))
+                return false;
+            if (primary != null)
             {
-                WeaponInfo info = InfoField != null ? InfoField.GetValue(missile) as WeaponInfo : null;
-                if (info != null)
-                {
-                    n = n + " " + (info.weaponName != null ? info.weaponName : string.Empty)
-                        + " " + (info.shortName != null ? info.shortName : string.Empty);
-                }
+                System.Type t = primary.GetType();
+                if (typeof(IRSeeker).IsAssignableFrom(t)
+                    || typeof(ARHSeeker).IsAssignableFrom(t)
+                    || typeof(SARHSeeker).IsAssignableFrom(t)
+                    || t.Name.IndexOf("IR", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || t.Name.IndexOf("ARH", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || t.Name.IndexOf("SARH", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
             }
-            catch { }
-            if (n.IndexOf("AAM", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            if (n.IndexOf("AIM", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            if (n.IndexOf("air-to-air", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            if (n.IndexOf("AGM", StringComparison.OrdinalIgnoreCase) >= 0)
-                return false;
-            if (n.IndexOf("TGM", StringComparison.OrdinalIgnoreCase) >= 0)
-                return false;
-            return false;
-        }
-
-        internal static bool MissileHuntsSurfaceOnly(Missile missile, MissileSeeker seeker)
-        {
-            if (missile != null && (IsKh85Missile(missile) || IsKh85CTerrainMissile(missile)))
-                return false;
-            if (MissileLooksAirToAir(missile))
-                return false;
-            return IsSurfaceAttackSeeker(seeker);
+            string n = missile.name ?? "";
+            if (missile.definition != null)
+            {
+                if (!string.IsNullOrEmpty(missile.definition.unitName)) n = missile.definition.unitName;
+                else if (!string.IsNullOrEmpty(missile.definition.jsonKey)) n = missile.definition.jsonKey;
+            }
+            return n.IndexOf("AAM", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("AA-", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || n.IndexOf("AIM", System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         internal static bool IsSurfaceUnit(Unit u)
@@ -4844,7 +3548,6 @@ namespace WeXon
             }
             // AGM-T Instantiated mounts can be missed by FindObjectsOfTypeAll after Clear
             AgmTWeapon.EnsureMountsInCache();
-            Aam2CvWeapon.EnsureMountsInCache();
         }
 
         private static bool IsMountDisabled(WeaponMount m)
@@ -4876,22 +3579,17 @@ namespace WeXon
         /// </summary>
         internal static void ExpandHardpoints(WeaponManager wm)
         {
-            if (wm == null)
+            if (wm == null || !AgmTOwnedByWeXon())
                 return;
-            if (AgmTOwnedByWeXon())
-            {
-                AgmTWeapon.Ensure();
-                AgmTWeapon.InjectIntoWeaponManager(wm);
-            }
-            Aam2CvWeapon.Ensure();
-            Aam2CvWeapon.InjectIntoWeaponManager(wm);
+            AgmTWeapon.Ensure();
+            // Only this manager �?never global FindObjectsOfTypeAll on every spawn/Awake.
+            AgmTWeapon.InjectIntoWeaponManager(wm);
         }
     }
 
     internal static class PluginInfo
     {
-        public const string GUID = "com.iallemege.wexon";
-        public const string LegacyGUID = "com.qiaochen.wexon";
+        public const string GUID = "com.qiaochen.wexon";
         public const string Name = "WeXon";
         public const string Version = "2.5.65";
     }
@@ -4902,13 +3600,9 @@ namespace WeXon
         [HarmonyPostfix]
         private static void Postfix(WeaponMount __instance)
         {
-            if (__instance == null)
-                return;
-            if (Aam2CvWeapon.IsAam2CvKey(__instance.jsonKey))
-                Aam2CvWeapon.RestoreMountIdentity(__instance);
             if (!Plugin.AgmTOwnedByWeXon())
                 return;
-            if (AgmTWeapon.IsAgmTKey(__instance.jsonKey))
+            if (__instance != null && AgmTWeapon.IsAgmTKey(__instance.jsonKey))
                 AgmTWeapon.RestoreMountIdentity(__instance);
         }
     }
@@ -4962,13 +3656,6 @@ namespace WeXon
             Missile missile = PluginAccess.GetMissile(__instance);
             if (missile == null || Plugin.IsGunShellMissile(missile))
                 return;
-            Plugin.StampShipMissile(missile, null);
-            // Ship edition and SARH keep vanilla seekers (no MM / LOAL).
-            if (Plugin.IsShipLaunchedMissile(missile) || __instance is SARHSeeker)
-            {
-                Plugin.StripIncompatibleBrain(missile);
-                return;
-            }
             Plugin.ApplyNuke(missile, "Seeker.Initialize");
             // TBM / BallisticMissileGuidance: nuke OK, never MM / IFF �?expanded free-hunt only
             if (Plugin.IsBallisticMissile(missile) || __instance is BallisticMissileGuidance)
@@ -4982,14 +3669,7 @@ namespace WeXon
                 Plugin.StripIncompatibleBrain(missile);
                 return;
             }
-            // Eyeball / AGM_scanner: TargetDetector owns scan — MM FeedSeekerLock hitch
-            if (Plugin.IsScannerReconMissile(missile))
-            {
-                Plugin.StripIncompatibleBrain(missile);
-                return;
-            }
             Plugin.SetupMultiMode(missile, __instance, target, aimpoint);
-            AgmDirectChaseService.Stamp(missile, __instance);
             Plugin.EnforceIffOnCurrentSeeker(missile);
         }
     }
@@ -5006,28 +3686,24 @@ namespace WeXon
                 return true;
             if (__instance is BallisticMissileGuidance)
                 return true;
-            if (__instance is OpticalSeekerCruiseMissile)
-                return true;
 
             Missile missile = PluginAccess.GetMissile(__instance);
+            // Never skip vanilla Seek �?null missile resolve must not hard-block guidance
             if (missile == null)
                 return true;
-            if (Plugin.IsShipLaunchedMissile(missile) || __instance is SARHSeeker)
-                return true;
-
-            // Cheapest gate: most Seeks skip all classify + IFF until interval elapses.
-            if (!Plugin.IffEnforceDue(missile))
-                return true;
-
             if (Plugin.IsGunShellMissile(missile) || Plugin.IsBallisticMissile(missile)
-                || Plugin.IsCruiseMissile(missile))
+                || Plugin.IsCruiseMissile(missile) || __instance is OpticalSeekerCruiseMissile)
                 return true;
 
             FieldInfo ms = Plugin.SeekerMissileField;
             if (ms != null && ms.GetValue(__instance) == null)
                 ms.SetValue(__instance, missile);
 
+            // Clears ejected pilots always; other IFF clears when EnableIff.
             Plugin.EnforceIffOnCurrentSeeker(missile);
+
+            // Let Seek run for Arm/DeployFins — aimpoint is restored in Postfix
+            // (vanilla Seek overwrites aimpoint to forward-coast when it has no radar lock)
             return true;
         }
 
@@ -5036,24 +3712,10 @@ namespace WeXon
         {
             if (__instance == null)
                 return;
-            if (Plugin.IsGunShellSeeker(__instance)
-                || __instance is BallisticMissileGuidance
-                || __instance is OpticalSeekerCruiseMissile
-                || __instance is SARHSeeker)
-                return;
             Missile missile = PluginAccess.GetMissile(__instance);
             if (missile == null)
                 return;
-            if (Plugin.IsShipLaunchedMissile(missile)
-                || Plugin.IsGunShellMissile(missile)
-                || Plugin.IsBallisticMissile(missile)
-                || Plugin.IsCruiseMissile(missile))
-                return;
-            // Vanilla Seek can re-lock a friendly after the 1 Hz IFF prefix.
-            Plugin.EnforceIffOnCurrentSeeker(missile);
-            MultiModeBrain brain = MultiModeBrain.Find(missile);
-            if (brain != null)
-                brain.PumpOnce();
+            // Guidance restored in Missile.Steering Prefix (avoid triple Reapply per frame)
         }
     }
 
@@ -5061,23 +3723,18 @@ namespace WeXon
     internal static class Patch_ARHSeeker_Seek_Guard
     {
         private static readonly FieldInfo RadarParamsField = AccessTools.Field(typeof(ARHSeeker), "radarParameters");
-        private static readonly HashSet<int> ArhOkIds = new HashSet<int>();
-        private static float _nextArhPrune;
 
         [HarmonyPrefix]
         private static bool Prefix(ARHSeeker __instance)
         {
             if (__instance == null)
                 return false;
-            int sid = __instance.GetInstanceID();
-            if (ArhOkIds.Contains(sid))
-                return true;
-
+            Missile missile = PluginAccess.GetMissile(__instance);
+            if (missile == null)
+                return false;
+            // Incomplete AddComponent ARH (no radarParameters) must not run
             if (RadarParamsField != null && RadarParamsField.GetValue(__instance) == null)
             {
-                Missile missile = PluginAccess.GetMissile(__instance);
-                if (missile == null)
-                    return false;
                 FieldInfo sf = Plugin.SeekerField;
                 if (sf != null && object.ReferenceEquals(sf.GetValue(missile), __instance))
                 {
@@ -5086,13 +3743,6 @@ namespace WeXon
                         sf.SetValue(missile, primary);
                 }
                 return false;
-            }
-            ArhOkIds.Add(sid);
-            if (Time.unscaledTime >= _nextArhPrune)
-            {
-                _nextArhPrune = Time.unscaledTime + 60f;
-                if (ArhOkIds.Count > 256)
-                    ArhOkIds.Clear();
             }
             return true;
         }
@@ -5110,7 +3760,7 @@ namespace WeXon
             if (target == null && __instance != null)
             {
                 MultiModeBrain brain = MultiModeBrain.Find(__instance);
-                TbmHuntAssist tbm = TbmHuntAssist.Find(__instance);
+                TbmHuntAssist tbm = __instance.GetComponent<TbmHuntAssist>();
                 if (SeekerIffGateService.ShouldBlockNullTargetClear(
                         brain != null && brain.HasActiveHuntTarget,
                         tbm != null && tbm.HasActiveTarget))
@@ -5118,15 +3768,6 @@ namespace WeXon
             }
             // Always block ejected pilots / parachute crew — never re-lock onto them.
             if (target != null && Plugin.IsEjectedPilotUnit(target))
-            {
-                if (Plugin.DebugLog.Value)
-                    Plugin.Log.LogInfo("Blocked SetTarget on ejected pilot: " + target.name);
-                return false;
-            }
-            if (target != null && Plugin.IsJunkHuntTarget(target)
-                && (Plugin.IsKh85Family(__instance)
-                    || AgmTWeapon.HasBusDispenser(__instance)
-                    || AgmTWeapon.IsGs25Submunition(__instance)))
                 return false;
             if (target == null)
                 return true;
@@ -5137,11 +3778,7 @@ namespace WeXon
                     Plugin.BlockFriendlySetTarget.Value,
                     false,
                     allowed))
-            {
-                if (Plugin.DebugLog.Value)
-                    Plugin.Log.LogInfo("IFF blocked SetTarget: " + target.name);
                 return false;
-            }
             return true;
         }
     }
@@ -5248,43 +3885,6 @@ namespace WeXon
         }
     }
 
-    /// <summary>
-    /// 175C: vanilla cruise Seek always runs. Do not skip OpticalSeekerCruiseMissile.Seek.
-    /// C/E/S still skip PreTerminalMode (null-target Detonate ~6s).
-    /// </summary>
-    [HarmonyPatch(typeof(OpticalSeekerCruiseMissile), "PreTerminalMode")]
-    internal static class Patch_CruisePreTerminal_Kh85Skip
-    {
-        [HarmonyPrefix]
-        [HarmonyPriority(Priority.First)]
-        private static bool Prefix(OpticalSeekerCruiseMissile __instance)
-        {
-            Missile missile = PluginAccess.GetMissile(__instance);
-            if (missile == null)
-                return true;
-            Plugin.Kh85Kind kind = Plugin.GetKh85Kind(missile);
-            if (Kh85GuideGateService.ShouldSkipCruisePreTerminal(
-                    (byte)kind,
-                    kind == Plugin.Kh85Kind.NotKh85 && Plugin.IsLikelyUnstampedKh85Launch(missile)))
-                return false;
-            // Null-target PreTerminal Detonates ~6s (LOAL vanish). Skip for every cruise missile.
-            Unit tu = PluginAccess.GetSeekerTarget(__instance);
-            if (tu == null)
-                return false;
-            return true;
-        }
-    }
-
-    [HarmonyPatch(typeof(OpticalSeekerCruiseMissile), "SlowChecks")]
-    internal static class Patch_CruiseSlowChecks_NoFalseSD
-    {
-        [HarmonyPrefix]
-        private static bool Prefix(OpticalSeekerCruiseMissile __instance)
-        {
-            return !SeekerSelfDestructGuard.ShouldSkipSlowChecks(__instance);
-        }
-    }
-
     [HarmonyPatch(typeof(Weapon), "AttachToHardpoint")]
     internal static class Patch_Weapon_Attach_SyncInfo
     {
@@ -5308,10 +3908,9 @@ namespace WeXon
             if (__instance != null && weapon != null && weapon.info != null
                 && (Plugin.IsIalKey(weaponMount != null ? weaponMount.jsonKey : null)
                     || Plugin.IsIalNukeCloneInfo(weapon.info)
+                    || Plugin.IsKeReplicaMount(weaponMount)
                     || AgmTWeapon.IsAgmTMount(weaponMount)
-                    || AgmTWeapon.IsAgmTInfo(weapon.info)
-                    || Aam2CvWeapon.IsAam2CvMount(weaponMount)
-                    || Aam2CvWeapon.IsAam2CvInfo(weapon.info)))
+                    || AgmTWeapon.IsAgmTInfo(weapon.info)))
                 __instance.WeaponInfo = weapon.info;
         }
     }
@@ -5324,15 +3923,143 @@ namespace WeXon
         {
             Plugin.NoteNukeFire(__instance);
             AgmTWeapon.NoteFire(__instance);
-            Aam2CvWeapon.NoteFire(__instance);
-            try { Plugin.NoteShipMissileFire(__instance.attachedUnit); }
-            catch { }
+#if ORITASY_COMBINED
+            Oritasy.KeAmmoCloneService.NoteFire(__instance);
+#endif
         }
     }
 
-    // Missile.FixedUpdate Postfix removed (106C): Boost is Spawn-only; LowSpeed SD +
-    // YieldProx TickFallback run from MultiModeBrain ~4 Hz. Optical/Laser Seek IFF duplicates
-    // removed — MissileSeeker.Seek already calls EnforceIffThrottled.
+        [HarmonyPatch(typeof(Missile), "FixedUpdate")]
+    internal static class Patch_Missile_FixedUpdate
+    {
+        [HarmonyPrefix]
+        private static void Prefix(Missile __instance, ref MultiModeBrain __state)
+        {
+            __state = null;
+            if (__instance == null)
+                return;
+            __state = MultiModeBrain.Find(__instance);
+            if (__state != null)
+            {
+                // Escalation/LowEnd: AI multi-mode every other physics frame; player LOAL every frame.
+                bool run = true;
+#if ORITASY_COMBINED
+                if (Oritasy.PerfMode.IsLow
+                    && !Plugin.IsPlayerLaunchedMissile(__instance)
+                    && (UnityEngine.Time.frameCount & 1) != 0)
+                    run = false;
+#endif
+                if (run)
+                    __state.BeforeMissileUpdate();
+            }
+            YieldProximityFuze.EnsureProxyWired(__instance);
+        }
+
+        [HarmonyPostfix]
+        private static void Postfix(Missile __instance, MultiModeBrain __state)
+        {
+            if (__instance == null)
+                return;
+
+            float age = 0f;
+            try { age = __instance.timeSinceSpawn; }
+            catch { }
+            if (age <= 1.25f)
+                Plugin.BoostShipMissileLaunchVelocity(__instance);
+
+            // Escalation fast path: conventional / no-brain / past boost window → SD only.
+            bool needProx = YieldProximityFuze.NeedsYieldProxHot(__instance);
+            if (__state == null && age > 1.25f && !needProx)
+            {
+#if ORITASY_COMBINED
+                if (Oritasy.PerfMode.IsLow)
+                    return;
+#endif
+            }
+
+            Plugin.TickLowSpeedSelfDestruct(__instance);
+            if (needProx)
+                YieldProximityFuze.TickFallback(__instance);
+        }
+    }
+
+    /// <summary>
+    /// Optical/Laser Seek overrides are not covered by MissileSeeker.Seek patches.
+    /// They often clear aimpoint / SetTarget(null) without hasVisual — re-apply right before Steering.
+    /// </summary>
+    [HarmonyPatch(typeof(Missile), "Steering")]
+    internal static class Patch_Missile_Steering
+    {
+        [HarmonyPrefix]
+        private static void Prefix(Missile __instance)
+        {
+            if (__instance == null)
+                return;
+            MultiModeBrain brain = MultiModeBrain.Find(__instance);
+            if (brain != null)
+                brain.ReapplyGuidanceAfterSeek();
+        }
+    }
+
+    [HarmonyPatch(typeof(OpticalSeeker), "Seek")]
+    internal static class Patch_OpticalSeeker_Seek
+    {
+        [HarmonyPrefix]
+        private static void Prefix(OpticalSeeker __instance)
+        {
+            Missile missile = PluginAccess.GetMissile(__instance);
+            if (missile == null)
+                return;
+            Plugin.EnforceIffOnCurrentSeeker(missile);
+        }
+
+        [HarmonyPostfix]
+        private static void Postfix(OpticalSeeker __instance)
+        {
+            Missile missile = PluginAccess.GetMissile(__instance);
+            if (missile == null)
+                return;
+            Plugin.EnforceIffOnCurrentSeeker(missile);
+            // Guidance restored in Missile.Steering Prefix
+        }
+
+        [HarmonyFinalizer]
+        private static Exception Finalizer(Exception __exception)
+        {
+            return __exception is NullReferenceException ? null : __exception;
+        }
+    }
+
+    [HarmonyPatch(typeof(LaserSeeker), "Seek")]
+    internal static class Patch_LaserSeeker_Seek
+    {
+        [HarmonyPrefix]
+        private static void Prefix(LaserSeeker __instance)
+        {
+            Missile missile = PluginAccess.GetMissile(__instance);
+            if (missile == null)
+                return;
+            Plugin.EnforceIffOnCurrentSeeker(missile);
+        }
+
+        [HarmonyPostfix]
+        private static void Postfix(LaserSeeker __instance)
+        {
+            Missile missile = PluginAccess.GetMissile(__instance);
+            if (missile == null)
+                return;
+            Plugin.EnforceIffOnCurrentSeeker(missile);
+            // Guidance restored in Missile.Steering Prefix
+        }
+
+        // Game LaserSeeker.SendTargetInfo NREs when designation bus is incomplete.
+        // Swallow only NRE so salvo FixedUpdate is not exception-stormed (happy path unchanged).
+        [HarmonyFinalizer]
+        private static Exception Finalizer(Exception __exception)
+        {
+            return __exception is NullReferenceException ? null : __exception;
+        }
+    }
 
     [HarmonyPatch(typeof(Missile), "Detonate")]
     [HarmonyPatch(new Type[] { typeof(Vector3), typeof(bool), typeof(bool) })]
@@ -5348,14 +4075,11 @@ namespace WeXon
             if (AgmTDispenser.TryForceDispense(__instance, true))
                 return false;
 
-            // ACNM-118 bus: nuke only if armed + within 0.5km of intended target; else fizzle.
-            // GS25: never fizzle — impact fuse needs Armed; nuke if armed, else conventional HE.
+            // ACNM-118: nuke only if armed + within 0.5km of intended target; else fizzle SD
             if (AgmTWeapon.IsAcnmNuclearMissile(__instance))
             {
                 if (AgmTWeapon.ShouldAllowNuclearDetonation(__instance))
                     Plugin.ArmAcnmNuclearWarhead(__instance);
-                else if (AgmTWeapon.IsGs25Submunition(__instance))
-                    Plugin.ForceAcnmConventionalBoom(__instance);
                 else
                     Plugin.ForceAcnmNonNuclearDetonate(__instance);
                 return true;
@@ -5470,25 +4194,11 @@ namespace WeXon
         [HarmonyPrefix]
         private static void Prefix(Weapon weapon, WeaponMount weaponMount)
         {
-            if (weapon == null || weaponMount == null)
-                return;
-            if (weapon is Gun)
-                return;
-            if (Aam2CvWeapon.IsAam2CvMount(weaponMount))
-            {
-                try
-                {
-                    if (!weapon.gameObject.activeSelf)
-                        weapon.gameObject.SetActive(true);
-                }
-                catch { }
-                Aam2CvWeapon.RestoreMountIdentity(weaponMount);
-                Aam2CvWeapon.SyncFromMount(weapon, weaponMount);
-                return;
-            }
             if (!Plugin.AgmTOwnedByWeXon())
                 return;
-            if (!AgmTWeapon.IsAgmTMount(weaponMount))
+            if (weapon == null || weaponMount == null || !AgmTWeapon.IsAgmTMount(weaponMount))
+                return;
+            if (weapon is Gun)
                 return;
             try
             {
@@ -5504,15 +4214,12 @@ namespace WeXon
     [HarmonyPatch(typeof(Spawner))]
     internal static class Patch_Spawner_SpawnMissile
     {
-        // Run after Kh85MT OnSpawned so VariantTag / letter brains exist before MM GuideTo.
         [HarmonyPostfix]
-        [HarmonyAfter(new string[] { "com.iallemege.kh85mt", "com.qiaochen.kh85mt" })]
         [HarmonyPatch("SpawnMissile", new Type[] { typeof(MissileDefinition), typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(Unit), typeof(Unit) })]
-        private static void PostfixDef(Missile __result, Unit owner)
+        private static void PostfixDef(Missile __result)
         {
             if (__result == null)
                 return;
-            Plugin.StampShipMissile(__result, owner);
             if (Plugin.IsGunShellMissile(__result) || Plugin.IsBallisticMissile(__result))
             {
                 Plugin.StripIncompatibleBrain(__result);
@@ -5524,31 +4231,24 @@ namespace WeXon
                 Plugin.SetupTbmHunt(__result);
                 return;
             }
-            if (Plugin.IsScannerReconMissile(__result))
-            {
-                Plugin.StripIncompatibleBrain(__result);
-                return;
-            }
             Plugin.ConsumePendingNuke(__result, "Spawn(def)");
             Plugin.ApplyNuke(__result, "Spawn(def)");
-            AgmTWeapon.OnSpawned(__result, owner);
-            Aam2CvWeapon.OnSpawned(__result, owner);
+            AgmTWeapon.OnSpawned(__result);
             Plugin.BoostShipMissileLaunchVelocity(__result);
-            // Kh85: Seeker.Initialize already attached MM; refresh after stamp (no early GuideTo).
             Plugin.SetupMultiMode(__result, null, null, __result.transform.position.ToGlobalPosition());
-            AgmDirectChaseService.Stamp(__result, null);
             if (AgmTWeapon.HasBusDispenser(__result))
                 MissileCameraBridge.TryNotifySpawn(__result);
+#if ORITASY_COMBINED
+            Oritasy.KeAmmoCloneService.ConsumeSpawned(__result);
+#endif
         }
 
         [HarmonyPostfix]
-        [HarmonyAfter(new string[] { "com.iallemege.kh85mt", "com.qiaochen.kh85mt" })]
         [HarmonyPatch("SpawnMissile", new Type[] { typeof(GameObject), typeof(Vector3), typeof(Quaternion), typeof(Vector3), typeof(Unit), typeof(Unit) })]
-        private static void PostfixGo(Missile __result, Unit owner)
+        private static void PostfixGo(Missile __result)
         {
             if (__result == null)
                 return;
-            Plugin.StampShipMissile(__result, owner);
             if (Plugin.IsGunShellMissile(__result) || Plugin.IsBallisticMissile(__result))
             {
                 Plugin.StripIncompatibleBrain(__result);
@@ -5559,20 +4259,16 @@ namespace WeXon
                 Plugin.SetupTbmHunt(__result);
                 return;
             }
-            if (Plugin.IsScannerReconMissile(__result))
-            {
-                Plugin.StripIncompatibleBrain(__result);
-                return;
-            }
             Plugin.ConsumePendingNuke(__result, "Spawn(go)");
             Plugin.ApplyNuke(__result, "Spawn(go)");
-            AgmTWeapon.OnSpawned(__result, owner);
-            Aam2CvWeapon.OnSpawned(__result, owner);
+            AgmTWeapon.OnSpawned(__result);
             Plugin.BoostShipMissileLaunchVelocity(__result);
             Plugin.SetupMultiMode(__result, null, null, __result.transform.position.ToGlobalPosition());
-            AgmDirectChaseService.Stamp(__result, null);
             if (AgmTWeapon.HasBusDispenser(__result))
                 MissileCameraBridge.TryNotifySpawn(__result);
+#if ORITASY_COMBINED
+            Oritasy.KeAmmoCloneService.ConsumeSpawned(__result);
+#endif
         }
     }
 
@@ -5582,32 +4278,10 @@ namespace WeXon
         [HarmonyPostfix]
         private static void Postfix(Hardpoint __instance, Aircraft aircraft, WeaponMount weaponMount, GameObject __result)
         {
-            if (__result == null || weaponMount == null)
-                return;
-            if (Aam2CvWeapon.IsAam2CvMount(weaponMount))
-            {
-                Aam2CvWeapon.RestoreMountIdentity(weaponMount);
-                if (Plugin.AgmTBusCustomVisual == null || Plugin.AgmTBusCustomVisual.Value)
-                    AgmTBusVisual.ApplyToHangarRack(__result, true);
-                try
-                {
-                    Weapon[] rails = __result.GetComponentsInChildren<Weapon>(true);
-                    for (int i = 0; i < rails.Length; i++)
-                    {
-                        Weapon w = rails[i];
-                        if (w == null || w is Gun)
-                            continue;
-                        if (!w.gameObject.activeSelf)
-                            w.gameObject.SetActive(true);
-                        Aam2CvWeapon.SyncFromMount(w, weaponMount);
-                    }
-                }
-                catch { }
-                return;
-            }
             if (!Plugin.AgmTOwnedByWeXon())
                 return;
-            if (aircraft == null || !AgmTWeapon.IsAgmTMount(weaponMount))
+            if (__result == null || weaponMount == null || aircraft == null
+                || !AgmTWeapon.IsAgmTMount(weaponMount))
                 return;
             AgmTWeapon.RestoreMountIdentity(weaponMount);
             if (Plugin.AgmTBusCustomVisual == null || Plugin.AgmTBusCustomVisual.Value)
@@ -5758,8 +4432,7 @@ namespace WeXon
         }
     }
 
-    [HarmonyPatch(typeof(WeaponSelector), "Initialize")]
-    [HarmonyPatch(new Type[] { typeof(Aircraft), typeof(HardpointSet), typeof(FactionHQ), typeof(Airbase) })]
+    [HarmonyPatch(typeof(WeaponSelector), "Initialize", new Type[] { typeof(Aircraft), typeof(HardpointSet), typeof(FactionHQ), typeof(Airbase) })]
     internal static class Patch_WeaponSelector_Initialize
     {
         [HarmonyPrefix]
@@ -5769,8 +4442,15 @@ namespace WeXon
                 Plugin.EnsureNukeMountClones();
             // Always Ensure �?repair null prefabs + re-register after AfterLoad
             AgmTWeapon.Ensure();
-            Aam2CvWeapon.Ensure();
             AgmTWeapon.RepairBrokenPrefabs();
+#if ORITASY_COMBINED
+            try
+            {
+                Oritasy.KeAmmoCloneService.Ensure();
+                Oritasy.KeAmmoCloneService.InjectForAircraft(aircraft);
+            }
+            catch { }
+#endif
             Plugin.EnterPlayerUnrestricted();
         }
 
@@ -5792,7 +4472,7 @@ namespace WeXon
         [HarmonyPrefix]
         private static void Prefix(Player player)
         {
-            if (Plugin.UnrestrictedFeatureOn() && Plugin.IsLocalHumanPlayer(player))
+            if (Plugin.EnableUnrestricted.Value && Plugin.IsLocalHumanPlayer(player))
             {
                 Plugin.LocalHumanWeaponsQuery = true;
                 Plugin.LocalHumanWeaponsUntil = Time.unscaledTime + 5f;
@@ -5803,7 +4483,7 @@ namespace WeXon
         [HarmonyPostfix]
         private static void Postfix(Player player)
         {
-            if (Plugin.UnrestrictedFeatureOn() && Plugin.IsLocalHumanPlayer(player))
+            if (Plugin.EnableUnrestricted.Value && Plugin.IsLocalHumanPlayer(player))
             {
                 Plugin.ExitPlayerUnrestricted();
                 Plugin.LocalHumanWeaponsUntil = Time.unscaledTime + 2f;
@@ -5825,17 +4505,7 @@ namespace WeXon
             ref string failReason,
             ref int failCost)
         {
-            if (Plugin.IsNavalHardpoint(hardpointSet) && Aam2CvWeapon.IsAam2CvMount(requestedMount))
-            {
-                __result = false;
-                failReason = "AAM-2CV blocked on naval hardpoint";
-                failCost = 0;
-                return false;
-            }
-            if (Plugin.IsLocalHumanPlayer(player)
-                && (AgmTWeapon.IsAgmTMount(requestedMount)
-                    || Aam2CvWeapon.IsAam2CvMount(requestedMount)
-                    || Plugin.IsKh85Mount(requestedMount))
+            if (Plugin.IsLocalHumanPlayer(player) && AgmTWeapon.IsAgmTMount(requestedMount)
                 && !Plugin.IsNavalHardpoint(hardpointSet))
             {
                 __result = true;
@@ -5844,7 +4514,7 @@ namespace WeXon
                 return false;
             }
 
-            if (!Plugin.UnrestrictedFeatureOn() || !Plugin.IsLocalHumanPlayer(player))
+            if (!Plugin.EnableUnrestricted.Value || !Plugin.IsLocalHumanPlayer(player))
                 return true;
 
             if (Plugin.BlockIalOnShips.Value && Plugin.IsIalMount(requestedMount)
@@ -5874,8 +4544,6 @@ namespace WeXon
                 Plugin.IsIalMount(mount),
                 Plugin.IsNavalHardpoint(hardpointSet),
                 AgmTWeapon.IsAgmTMount(mount),
-                Aam2CvWeapon.IsAam2CvMount(mount),
-                Plugin.IsKh85Mount(mount),
                 Plugin.AllowPlayerUnrestricted());
             if (path == LoadoutMountGateService.HardpointPath.ForceDeny)
             {
@@ -5942,7 +4610,7 @@ namespace WeXon
             LoadoutMountGateService.NuclearPath path = LoadoutMountGateService.ResolveNuclearPrefix(
                 Plugin.IsIalExemptFromWarheadQuota(mount),
                 player != null,
-                Plugin.UnrestrictedFeatureOn(),
+                Plugin.EnableUnrestricted.Value,
                 Plugin.AllowPlayerUnrestricted(),
                 Plugin.IsLocalHumanPlayer(player));
             if (path == LoadoutMountGateService.NuclearPath.ForceAllow)
@@ -6003,8 +4671,8 @@ namespace WeXon
 
         /// <summary>
         /// Vanilla PreferNukesFilter strips all conventional options whenever any nuke fits.
-        /// AiNukeChance is independent of warhead stock because IAL [10kt] does not consume it.
-        /// When stock is empty but the roll succeeds, keep IAL only (strip Genie-style stock nukes).
+        /// Only allow that ~AiNukeChance when the faction still has warheads; otherwise keep
+        /// conventional so AI pylons are never left empty.
         /// </summary>
         [HarmonyPrefix]
         private static bool Prefix(int warheadsAvailable, HardpointSet hardpointSet,
@@ -6020,7 +4688,8 @@ namespace WeXon
                 Plugin.BlockIalOnShips.Value,
                 Plugin.IsNavalHardpoint(hardpointSet),
                 warheadsAvailable,
-                Plugin.RollAiNukePreference());
+                Plugin.RollAiNukePreference(),
+                Plugin.OritasyNukesAllowed);
 
             if (path == PreferNukesGateService.Path.SkipVanillaKeepList)
                 return false;
@@ -6028,12 +4697,6 @@ namespace WeXon
             if (path == PreferNukesGateService.Path.StripNukesKeepConventional)
             {
                 Plugin.RemoveNuclearFromList(listToFilter);
-                return false;
-            }
-
-            if (path == PreferNukesGateService.Path.KeepIalStripStockNukes)
-            {
-                Plugin.RemoveStockpileNukesKeepIal(listToFilter);
                 return false;
             }
 
@@ -6062,6 +4725,9 @@ namespace WeXon
                 return;
             }
 
+            if (!Plugin.OritasyNukesAllowed)
+                Plugin.RemoveIalNukeClonesFromList(listToFilter);
+
             if (Plugin.IsHumanWeaponContext())
             {
                 SavedConventionals = null;
@@ -6077,7 +4743,7 @@ namespace WeXon
 
             if (!__state)
             {
-                // Prefix already finalized (strip-all, keep-IAL-only, or human skip).
+                Plugin.RemoveNuclearFromList(listToFilter);
                 SavedConventionals = null;
                 return;
             }
@@ -6161,7 +4827,7 @@ namespace WeXon
                     for (int i = 0; i < Plugin.CachedMounts.Count; i++)
                     {
                         WeaponMount m = Plugin.CachedMounts[i];
-                        // Null/destroyed prefab — Hardpoint.SpawnMount NRE and empties the whole loadout
+                        // Null/destroyed prefab �?Hardpoint.SpawnMount NRE and empties the whole loadout
                         if (m == null || m.prefab == null || !HaveScratch.Add(m))
                             continue;
                         if (naval && Plugin.IsIalMount(m))
@@ -6169,15 +4835,17 @@ namespace WeXon
                         outAvailable.Add(m);
                     }
                 }
-                if (Plugin.EnableAgmT != null && Plugin.EnableAgmT.Value && !naval
+                else if (Plugin.AgmTOwnedByWeXon() && !naval
                     && Plugin.IsLocalHumanPlayer(player))
                 {
                     AgmTWeapon.AppendMountsToList(outAvailable, HaveScratch);
                 }
-                if (!Plugin.IsNavalHardpoint(hardpointSet) && Plugin.IsLocalHumanPlayer(player))
-                {
-                    Aam2CvWeapon.AppendMountsToList(outAvailable, HaveScratch);
-                }
+#if ORITASY_COMBINED
+                Oritasy.KeAmmoCloneService.Ensure();
+                Oritasy.KeAmmoCloneService.AppendToAvailable(hardpointSet, outAvailable);
+#endif
+                if (!Plugin.OritasyNukesAllowed)
+                    Plugin.RemoveIalNukeClonesFromList(outAvailable);
             }
             finally
             {
@@ -6198,29 +4866,21 @@ namespace WeXon
         [HarmonyPrefix]
         private static bool Prefix(Weapon __instance, Unit owner)
         {
-            if (Plugin.IsShipUnit(owner) && __instance != null
-                && Aam2CvWeapon.IsAam2CvInfo(__instance.info))
-            {
-                if (Plugin.DebugLog != null && Plugin.DebugLog.Value)
-                    Plugin.Log.LogInfo("Blocked AAM-2CV fire from ship: " + __instance.name);
-                return false;
-            }
-            if (Plugin.BlockIalOnShips.Value && __instance != null
-                && Plugin.IsShipUnit(owner) && Plugin.IsIalWeapon(__instance))
-            {
-                if (Plugin.DebugLog.Value)
-                    Plugin.Log.LogInfo("Blocked IAL fire from ship: " + __instance.name);
-                return false;
-            }
-            Plugin.NoteShipMissileFire(owner);
-            return true;
+            if (!Plugin.BlockIalOnShips.Value || __instance == null)
+                return true;
+            if (!Plugin.IsShipUnit(owner))
+                return true;
+            if (!Plugin.IsIalWeapon(__instance))
+                return true;
+            if (Plugin.DebugLog.Value)
+                Plugin.Log.LogInfo("Blocked IAL fire from ship: " + __instance.name);
+            return false;
         }
     }
 
     internal static class PluginAccess
     {
         private static readonly FieldInfo SeekerMissileField = AccessTools.Field(typeof(MissileSeeker), "missile");
-        private static readonly FieldInfo SeekerTargetField = AccessTools.Field(typeof(MissileSeeker), "targetUnit");
 
         internal static Missile GetMissile(MissileSeeker seeker)
         {
@@ -6231,14 +4891,6 @@ namespace WeXon
                 missile = seeker.GetComponentInParent<Missile>();
             return missile;
         }
-
-        internal static Unit GetSeekerTarget(MissileSeeker seeker)
-        {
-            if (seeker == null || SeekerTargetField == null)
-                return null;
-            try { return SeekerTargetField.GetValue(seeker) as Unit; }
-            catch { return null; }
-        }
     }
 
     /// <summary>
@@ -6247,7 +4899,6 @@ namespace WeXon
     /// </summary>
     public sealed class TbmHuntAssist : MonoBehaviour
     {
-        private static readonly Dictionary<int, TbmHuntAssist> ByMissileId = new Dictionary<int, TbmHuntAssist>(16);
         private static readonly FieldInfo SeekerTargetField = AccessTools.Field(typeof(MissileSeeker), "targetUnit");
         private static readonly FieldInfo KnownPosField = AccessTools.Field(typeof(BallisticMissileGuidance), "knownPos");
         private static readonly FieldInfo KnownVelField = AccessTools.Field(typeof(BallisticMissileGuidance), "knownVel");
@@ -6265,44 +4916,9 @@ namespace WeXon
             get { return _target != null && Plugin.IsUnitAlive(_target); }
         }
 
-        internal static TbmHuntAssist Find(Missile missile)
-        {
-            if (missile == null)
-                return null;
-            TbmHuntAssist a;
-            if (ByMissileId.TryGetValue(missile.GetInstanceID(), out a) && a != null)
-                return a;
-            return null;
-        }
-
-        private static readonly List<TbmHuntAssist> PumpScratch = new List<TbmHuntAssist>(16);
-
-        internal static void PumpAll()
-        {
-            if (ByMissileId.Count == 0)
-                return;
-            PumpScratch.Clear();
-            Dictionary<int, TbmHuntAssist>.ValueCollection vals = ByMissileId.Values;
-            foreach (TbmHuntAssist a in vals)
-            {
-                if (a != null)
-                    PumpScratch.Add(a);
-            }
-            for (int i = 0; i < PumpScratch.Count; i++)
-                PumpScratch[i].PumpOnce();
-            PumpScratch.Clear();
-        }
-
-        internal void PumpOnce()
-        {
-            TickHunt();
-        }
-
         public void Setup(Missile missile)
         {
             _missile = missile;
-            if (missile != null)
-                ByMissileId[missile.GetInstanceID()] = this;
             _guidance = missile != null ? missile.GetComponent<BallisticMissileGuidance>() : null;
             if (_guidance == null && missile != null)
                 _guidance = missile.GetComponentInChildren<BallisticMissileGuidance>();
@@ -6318,18 +4934,7 @@ namespace WeXon
                 TryHunt(true);
         }
 
-        private void OnDestroy()
-        {
-            if (_missile != null)
-                ByMissileId.Remove(_missile.GetInstanceID());
-        }
-
         private void FixedUpdate()
-        {
-            TickHunt();
-        }
-
-        private void TickHunt()
         {
             if (_missile == null || _missile.disabled)
                 return;
@@ -6363,20 +4968,14 @@ namespace WeXon
         {
             if (!Plugin.AllowFreeAttack.Value || _missile == null)
                 return;
-            // F9 drop already has a spawn target; 60 km retarget yanks it into a flat turn.
-            if (F9DropMark.Has(_missile))
-                return;
             if (!TbmHuntMathService.HuntDue(Time.time, _nextHunt, force))
-                return;
-            if (!Plugin.TryConsumeHuntQuery())
                 return;
             _nextHunt = TbmHuntMathService.ScheduleNextHunt(
                 Time.time,
-                Plugin.EffectiveHuntInterval());
+                Plugin.MadModeSearchInterval.Value);
 
-            float radius = HuntRangeGateService.ResolveTbmHuntRadiusM(
-                Plugin.TbmHuntRadius != null ? Plugin.TbmHuntRadius.Value : TbmHuntMathService.DefaultRadiusM,
-                Plugin.EffectiveHuntRadius(_missile));
+            float radius = TbmHuntMathService.ClampHuntRadius(
+                Plugin.TbmHuntRadius != null ? Plugin.TbmHuntRadius.Value : TbmHuntMathService.DefaultRadiusM);
 
             GlobalPosition origin;
             try { origin = _missile.GlobalPosition(); }
@@ -6481,25 +5080,26 @@ namespace WeXon
         private float _nextHunt;
         private float _nextDesignatedCheck;
         private float _softRetargetUntil;
-        /// <summary>Set when coasting / lost lock so the next GuideTo does not snap 180° and stall.</summary>
-        private bool _needsRelockSoft;
+        /// <summary>Last commanded aim direction (HOBS slew smoothing).</summary>
         private Vector3 _lastCmdDir;
-        private float _lastGuideTime;
+        private bool _hasLastCmdDir;
         private float _nextFinBoost;
-        private float _nextStickyGuide;
-        private float _nextLightSync;
-        private float _nextSlowTick;
-        private float _nextSafetyTick;
-        private bool _opticalLight;
         private int _lastTargetId;
         private int _lastBeforeFrame = -1;
-        private int _tickFrame = -1;
         /// <summary>Frame when GuideTo last wrote aim — skip duplicate Reapply GuideTo same FixedUpdate.</summary>
         private int _aimSyncedFrame = -1;
         /// <summary>Target id that received full seeker warm (bools / IR / ARH); hot path only dirty aim fields.</summary>
         private int _seekerWarmTargetId;
         private readonly List<Unit> _huntBuf = new List<Unit>(128);
         private readonly HashSet<Unit> _huntSeen = new HashSet<Unit>();
+        // 259C: hunt score scratch (main copies positions; ThreadPool scores).
+        private static float[] s_huntCx = new float[128];
+        private static float[] s_huntCy = new float[128];
+        private static float[] s_huntCz = new float[128];
+        private static float[] s_huntSoft = new float[128];
+        private static float[] s_huntScore = new float[128];
+        private static Unit[] s_huntUnits = new Unit[128];
+        private static int s_huntScratchN;
         private static readonly FieldInfo SeekerTargetField = AccessTools.Field(typeof(MissileSeeker), "targetUnit");
         private static readonly FieldInfo SeekerField = AccessTools.Field(typeof(Missile), "seeker");
         private static readonly FieldInfo FinAreaField = AccessTools.Field(typeof(Missile), "finArea");
@@ -6519,16 +5119,6 @@ namespace WeXon
             }
         }
 
-        /// <summary>Fired without a weapon lock — still searching. Aircraft TGP is not this missile's lock.</summary>
-        public bool IsOpenLoalSearch
-        {
-            get
-            {
-                return Plugin.AllowFreeAttack != null && Plugin.AllowFreeAttack.Value
-                    && !_stickyOnly && !_playerDesignated;
-            }
-        }
-
         public bool HasGuidanceOverride
         {
             get { return _guidanceOverride; }
@@ -6539,14 +5129,15 @@ namespace WeXon
         {
             // Player/designated locks stay sticky — do not re-gate every frame with CanEngage
             // (IFF HQ flicker + IR LoseLock was wiping targetID — ARH/IR aim straight ahead).
-            // Short-circuit: do NOT evaluate CanEngage when sticky (C# always evaluates args).
             get
             {
-                if (_target == null || !IsAlive(_target))
-                    return false;
-                if (_playerDesignated || _stickyOnly)
-                    return !IsConfirmedFriendly(_target);
-                return CanEngage(_target, true);
+                bool alive = _target != null && IsAlive(_target);
+                return MultiModeHuntGateService.HasActiveHuntTarget(
+                    alive,
+                    _playerDesignated,
+                    _stickyOnly,
+                    alive && IsConfirmedFriendly(_target),
+                    alive && CanEngage(_target, true));
             }
         }
 
@@ -6573,7 +5164,6 @@ namespace WeXon
         private void ReleaseGuidanceToVanilla()
         {
             _guidanceOverride = false;
-            _needsRelockSoft = true;
             if (!_playerDesignated && !_stickyOnly)
                 _target = null;
             RefreshTargetClaim();
@@ -6583,7 +5173,6 @@ namespace WeXon
         private void DropTarget()
         {
             _guidanceOverride = false;
-            _needsRelockSoft = true;
             _target = null;
             _playerDesignated = false;
             _seekerWarmTargetId = 0;
@@ -6599,20 +5188,14 @@ namespace WeXon
                 _guidanceOverride = false;
                 return;
             }
-            if (Plugin.ShouldDeferKh85GuideTo(_missile))
-            {
-                _guidanceOverride = false;
-                return;
-            }
             try
             {
                 _missile.SetAimpoint(_lastKnownAim, _lastKnownVel);
                 _aimpoint = _lastKnownAim;
                 _guidanceOverride = true;
                 _aimSyncedFrame = Time.frameCount;
-                _needsRelockSoft = true;
             }
-            catch { _guidanceOverride = false; _needsRelockSoft = true; }
+            catch { _guidanceOverride = false; }
         }
 
         internal static MultiModeBrain Find(Missile missile)
@@ -6623,32 +5206,6 @@ namespace WeXon
             if (BrainsByMissileId.TryGetValue(missile.GetInstanceID(), out brain) && brain != null)
                 return brain;
             return null;
-        }
-
-        private static readonly List<MultiModeBrain> PumpScratch = new List<MultiModeBrain>(64);
-
-        /// <summary>
-        /// Packed payload: Unity may skip Update on extra MBs. HostedTick + Seek postfix call this.
-        /// </summary>
-        internal static void PumpAll()
-        {
-            if (BrainsByMissileId.Count == 0)
-                return;
-            PumpScratch.Clear();
-            Dictionary<int, MultiModeBrain>.ValueCollection vals = BrainsByMissileId.Values;
-            foreach (MultiModeBrain b in vals)
-            {
-                if (b != null)
-                    PumpScratch.Add(b);
-            }
-            for (int i = 0; i < PumpScratch.Count; i++)
-                PumpScratch[i].PumpOnce();
-            PumpScratch.Clear();
-        }
-
-        internal void PumpOnce()
-        {
-            TickSlow();
         }
 
         private void RegisterBrain()
@@ -6663,7 +5220,10 @@ namespace WeXon
         {
             ClearTargetClaim();
             if (_missileId != 0)
+            {
                 BrainsByMissileId.Remove(_missileId);
+                YieldProximityFuze.ForgetMissile(_missileId);
+            }
         }
 
         private void RefreshTargetClaim()
@@ -6715,18 +5275,11 @@ namespace WeXon
         {
             _missile = missile;
             RegisterBrain();
-            // Warm Kh85Kind cache once at attach (hot paths use GetKh85Kind).
-            if (missile != null)
-                Plugin.GetKh85Kind(missile);
             _primary = primary;
             _aimpoint = aimpoint;
             _nextHunt = 0f;
             _nextDesignatedCheck = 0f;
             _nextFinBoost = 0f;
-            _nextStickyGuide = 0f;
-            _nextLightSync = 0f;
-            _nextSlowTick = 0f;
-            _nextSafetyTick = 0f;
             _guidanceOverride = false;
             _playerDesignated = false;
             _stickyOnly = false;
@@ -6734,7 +5287,6 @@ namespace WeXon
             _aimSyncedFrame = -1;
             _seekerWarmTargetId = 0;
             _deployCalled = false;
-            _opticalLight = false;
 
             if (_primary == null)
             {
@@ -6744,16 +5296,10 @@ namespace WeXon
                     _primary = missile.GetComponent<MissileSeeker>();
             }
 
-            // 0.7-style light MM for Optical/Laser: lock assist only, vanilla Seek steers.
-            _opticalLight = MissileClassifyGateService.IsOpticalOrLaserSeeker(_primary)
-                && !(_primary is OpticalSeekerCruiseMissile)
-                && !(_primary is OpticalSeekerShell);
-
             if (SeekerField != null && _primary != null)
                 SeekerField.SetValue(missile, _primary);
 
-            // Optical light: never add secondary ARH (0.7 terminal switch was optional; secondary fights Seek).
-            if (!_opticalLight && Plugin.EnableSecondarySeeker.Value)
+            if (Plugin.EnableSecondarySeeker.Value)
                 EnsureSecondary();
 
             if (MissileGLimitField != null)
@@ -6767,30 +5313,23 @@ namespace WeXon
             }
             _ready = _primary != null;
 
-            // Weapon lock only: spawn/Initialize target + missile.target/targetID.
-            // Do NOT steal aircraft TGP/radar primary (that made AAM sticky on tanks and killed LOAL).
-            _target = (target != null && CanEngage(target, false)
-                && Plugin.TargetFitsSeekerFamily(missile, _primary, target)) ? target : null;
-            if (_target == null)
-            {
-                Unit own = Plugin.ResolveMissileOwnTarget(missile);
-                // LOAL spawn (no Initialize lock): never adopt a friendly vanilla Seek pick.
-                bool needHostile = target == null;
-                if (own != null && CanEngage(own, needHostile)
-                    && Plugin.TargetFitsSeekerFamily(missile, _primary, own))
-                    _target = own;
-            }
-            if (_target != null && !CanEngage(_target, false))
+            // 265C: player/designated lock ALWAYS outranks LOAL free-hunt.
+            Unit designated = Plugin.ResolveDesignatedTarget(missile);
+            if (target != null && Plugin.IsDesignatedEngageable(missile, Plugin.ResolveShooterSide(missile), target))
+                _target = target;
+            else if (designated != null)
+                _target = designated;
+            else
+                _target = null;
+            if (_target != null && !Plugin.IsDesignatedEngageable(missile, Plugin.ResolveShooterSide(missile), _target))
                 _target = null;
 
-            // Ship soft-launch: remember lock but do not GuideTo yet (avoids RAM45 spin-out).
-            bool targetEngage = _target != null && CanEngage(_target, false);
-            bool deferKh = Plugin.ShouldDeferKh85GuideTo(missile);
+            bool targetEngage = _target != null;
+            bool hadPlayerDesignation = designated != null || targetEngage;
             MultiModeTickGateService.SetupLockAction setup = MultiModeTickGateService.ResolveSetupLock(
                 ShipLaunchNeedsCoast(),
-                targetEngage,
-                deferKh,
-                Plugin.AllowFreeAttack.Value,
+                targetEngage || hadPlayerDesignation,
+                Plugin.AllowFreeAttack.Value && !hadPlayerDesignation,
                 _stickyOnly);
             if (setup == MultiModeTickGateService.SetupLockAction.ShipCoastHold)
             {
@@ -6803,53 +5342,121 @@ namespace WeXon
                 RefreshTargetClaim();
                 return;
             }
-            if (setup == MultiModeTickGateService.SetupLockAction.StickyGuide
-                || setup == MultiModeTickGateService.SetupLockAction.StickyDeferKh85)
+            if (setup == MultiModeTickGateService.SetupLockAction.StickyGuide)
             {
-                MarkSticky(_target);
-                if (_opticalLight)
+                if (_target == null)
+                    _target = designated;
+                if (_target != null)
                 {
-                    SyncSeekerTargetLight(_target);
-                    _guidanceOverride = false;
-                }
-                else
-                {
+                    MarkSticky(_target);
                     SyncSeekerTarget(_target);
-                    if (setup == MultiModeTickGateService.SetupLockAction.StickyGuide)
-                        GuideTo(_target);
-                    else
-                        _guidanceOverride = false;
+                    GuideTo(_target);
+                    if (Plugin.DebugLog.Value)
+                        Plugin.Log.LogInfo("MM player/designated lock: " + _target.name);
                 }
-                if (Plugin.DebugLog.Value)
-                    Plugin.Log.LogInfo("MM player/designated lock: " + _target.name
-                        + (_opticalLight ? " (optical-light)" : string.Empty));
             }
             else if (setup == MultiModeTickGateService.SetupLockAction.FreeHuntLoal)
             {
-                _nextHunt = 0f;
-                if (_opticalLight)
-                    TryFreeHuntOpticalLight();
-                else
+                // Only true no-lock LOAL — never when a designation existed.
+                if (!hadPlayerDesignation)
+                {
+                    _nextHunt = 0f;
                     TryFreeHunt();
-                if (MultiModeTickGateService.ShouldClearGuidanceOverrideOnKh85Setup(
-                    deferKh, Plugin.IsKh85CTerrainMissile(missile)))
-                    _guidanceOverride = false;
+                }
+                else if (_target != null)
+                {
+                    MarkSticky(_target);
+                    SyncSeekerTarget(_target);
+                    GuideTo(_target);
+                }
             }
             RefreshTargetClaim();
         }
 
-        /// <summary>
-        /// LEGACY — no longer called from Seek Postfix (was FixedUpdate hitch root).
-        /// Slow Update owns sticky GuideTo / hunt.
-        /// </summary>
+        /// <summary>Called after vanilla Seek — restores aimpoint Seek just overwrote with forward-coast.</summary>
         public void ReapplyGuidanceAfterSeek()
         {
-            if (_opticalLight)
+            MultiModeTickGateService.EarlyOut early = MultiModeTickGateService.ResolveReapplyEarly(
+                Plugin.EnableMultiMode.Value,
+                _missile != null && (Plugin.IsGunShellMissile(_missile) || Plugin.IsMotorlessProjectile(_missile)),
+                Plugin.IsCruiseMissile(_missile));
+            if (early == MultiModeTickGateService.EarlyOut.ClearOverride)
             {
                 _guidanceOverride = false;
                 return;
             }
-            BeforeMissileUpdate();
+            if (early == MultiModeTickGateService.EarlyOut.StripIncompatible)
+            {
+                Plugin.StripIncompatibleBrain(_missile);
+                return;
+            }
+
+            EnsureFinsAndArm();
+
+            MultiModeTickGateService.ModeBranch branch = MultiModeTickGateService.ResolveModeBranch(
+                ShipLaunchNeedsCoast(),
+                _playerDesignated || _stickyOnly);
+
+            if (branch == MultiModeTickGateService.ModeBranch.ShipCoast)
+            {
+                _guidanceOverride = false;
+                return;
+            }
+
+            if (branch == MultiModeTickGateService.ModeBranch.Sticky)
+            {
+                MultiModeTickGateService.StickyAction st = MultiModeTickGateService.ResolveStickyReapply(
+                    _target != null && Plugin.IsEjectedPilotUnit(_target),
+                    _target != null,
+                    _target != null && IsAlive(_target),
+                    _target != null && IsConfirmedFriendly(_target),
+                    MultiModeGuideMathService.AimAlreadySyncedThisFrame(_aimSyncedFrame, Time.frameCount));
+                if (st == MultiModeTickGateService.StickyAction.DropCoast)
+                {
+                    DropTarget();
+                    CoastStickyLastKnown();
+                    return;
+                }
+                if (st == MultiModeTickGateService.StickyAction.SyncHotOnly)
+                {
+                    SyncSeekerTargetHot(_target);
+                    return;
+                }
+                SyncSeekerTarget(_target);
+                GuideTo(_target);
+                return;
+            }
+
+            // Clears ejected pilots always; other IFF clears when EnableIff.
+            Plugin.EnforceIffOnCurrentSeeker(_missile);
+
+            if (_target != null && (Plugin.IsEjectedPilotUnit(_target)
+                || !IsAlive(_target) || !CanEngage(_target, true)))
+                DropTarget();
+
+            MultiModeTickGateService.OpenHuntAction open = MultiModeTickGateService.ResolveOpenReapply(
+                _target != null && IsAlive(_target) && CanEngage(_target, true),
+                MultiModeGuideMathService.AimAlreadySyncedThisFrame(_aimSyncedFrame, Time.frameCount),
+                Plugin.AllowFreeAttack.Value,
+                _stickyOnly,
+                Time.time >= _nextHunt);
+            if (open == MultiModeTickGateService.OpenHuntAction.SyncHotExisting)
+            {
+                SyncSeekerTargetHot(_target);
+                return;
+            }
+            if (open == MultiModeTickGateService.OpenHuntAction.GuideExisting)
+            {
+                SyncSeekerTarget(_target);
+                GuideTo(_target);
+                return;
+            }
+            if (open == MultiModeTickGateService.OpenHuntAction.TryFreeHunt)
+                TryFreeHunt();
+            else if (open == MultiModeTickGateService.OpenHuntAction.CoastSticky)
+                CoastStickyLastKnown();
+            else
+                ReleaseGuidanceToVanilla();
         }
 
         private void EnsureFinsAndArm()
@@ -6929,7 +5536,7 @@ namespace WeXon
                     spd = _missile.rb.velocity.magnitude;
             }
             catch { }
-            return Kh85GuideGateService.ShipLaunchNeedsCoast(
+            return MultiModeTickGateService.ShipLaunchNeedsCoast(
                 Plugin.IsShipLaunchedMissile(_missile), age, spd, 1.0f, 80f);
         }
 
@@ -6951,7 +5558,7 @@ namespace WeXon
             if (object.ReferenceEquals(candidate, _missile) || object.ReferenceEquals(candidate, _missile.owner))
                 return false;
             if (freeHunt)
-                return Plugin.IsLoalHuntTarget(_missile, candidate);
+                return Plugin.IsHostileHuntTarget(_missile, candidate);
             return Plugin.IsAllowedTarget(Plugin.ResolveShooterSide(_missile), candidate);
         }
 
@@ -6964,11 +5571,6 @@ namespace WeXon
         {
             if (target != null && Plugin.IsEjectedPilotUnit(target))
                 return;
-            if (_opticalLight)
-            {
-                SyncSeekerTargetLight(target);
-                return;
-            }
             if (SeekerTargetField != null && target != null)
             {
                 if (_primary != null)
@@ -6984,126 +5586,6 @@ namespace WeXon
             catch { }
 
             FeedSeekerLock(target);
-        }
-
-        /// <summary>
-        /// 0.7-style optical assist: only wire targetUnit / Missile.target.
-        /// Never FeedSeekerLock (hasVisual/lastOpticalCheck forced SlowChecks + Seek fight).
-        /// </summary>
-        private void SyncSeekerTargetLight(Unit target)
-        {
-            if (target == null || Plugin.IsEjectedPilotUnit(target) || _primary == null)
-                return;
-            if (SeekerTargetField != null)
-                SeekerTargetField.SetValue(_primary, target);
-            try { _missile.SetTarget(target); }
-            catch { }
-            _guidanceOverride = false;
-        }
-
-        private void OpticalLightBeforeTick()
-        {
-            // Sticky/player: vanilla Seek steers. Open LOAL keeps SetAimpoint override.
-            if (_stickyOnly || _playerDesignated)
-                _guidanceOverride = false;
-            if (_playerDesignated || _stickyOnly)
-            {
-                if (_target != null && Plugin.IsEjectedPilotUnit(_target))
-                {
-                    DropTarget();
-                    return;
-                }
-                if (_target != null && IsAlive(_target) && !IsConfirmedFriendly(_target))
-                {
-                    if (Time.time >= _nextLightSync)
-                    {
-                        _nextLightSync = Time.time + 0.2f;
-                        SyncSeekerTargetLight(_target);
-                    }
-                }
-                else if (_target != null)
-                    DropTarget();
-                return;
-            }
-
-            if (Plugin.Kh85LoalHuntDelayActive(_missile, false))
-                return;
-
-            if (MultiModeTickGateService.DesignatedCheckDue(Time.time, _nextDesignatedCheck))
-            {
-                _nextDesignatedCheck = MultiModeTickGateService.ScheduleNextDesignatedCheck(Time.time);
-                Unit designated = Plugin.ResolveMissileOwnTarget(_missile);
-                if (designated != null && CanEngage(designated, true)
-                    && Plugin.TargetFitsSeekerFamily(_missile, _primary, designated))
-                {
-                    MarkSticky(designated);
-                    SyncSeekerTargetLight(_target);
-                    return;
-                }
-            }
-
-            if (_target != null && (Plugin.IsEjectedPilotUnit(_target)
-                || !IsAlive(_target) || !CanEngage(_target, true)))
-                DropTarget();
-
-            if (_target == null && Plugin.AllowFreeAttack.Value && !_stickyOnly)
-                TryFreeHuntOpticalLight();
-            else if (_target != null)
-            {
-                if (Plugin.ShouldDeferKh85GuideTo(_missile))
-                {
-                    if (Time.time >= _nextLightSync)
-                    {
-                        _nextLightSync = Time.time + 0.2f;
-                        SyncSeekerTargetLight(_target);
-                    }
-                    _guidanceOverride = false;
-                }
-                else
-                    GuideTo(_target);
-            }
-        }
-
-        /// <summary>LOAL for optical: pick a forward hostile and GuideTo (vanilla Seek will not turn off-boresight).</summary>
-        private void TryFreeHuntOpticalLight()
-        {
-            if (!Plugin.AllowFreeAttack.Value || _missile == null || _stickyOnly || _playerDesignated)
-                return;
-            if (Plugin.Kh85LoalHuntDelayActive(_missile, false))
-                return;
-            if (Time.time < _nextHunt)
-                return;
-            if (!Plugin.TryConsumeHuntQuery())
-                return;
-            bool acquiring = _target == null && !_stickyOnly && !_playerDesignated;
-            _nextHunt = Time.time + (acquiring ? 0.12f : Plugin.EffectiveHuntInterval());
-
-            GlobalPosition origin;
-            try { origin = _missile.GlobalPosition(); }
-            catch { origin = _missile.transform.position.ToGlobalPosition(); }
-
-            float radius = Plugin.EffectiveHuntRadius(_missile);
-            _huntBuf.Clear();
-            _huntSeen.Clear();
-            try { BattlefieldGrid.GetUnitsInRangeNonAlloc(origin, radius, _huntBuf); }
-            catch { return; }
-
-            Unit best = null;
-            float bestDist = float.MaxValue;
-            Vector3 mpos = _missile.transform.position;
-            ConsiderHuntList(_huntBuf, mpos, radius, Plugin.MissileHuntsSurfaceOnly(_missile, _primary), ref best, ref bestDist);
-            if (best == null)
-                return;
-            _target = best;
-            _playerDesignated = false;
-            if (Plugin.ShouldDeferKh85GuideTo(_missile))
-            {
-                SyncSeekerTargetLight(best);
-                _guidanceOverride = false;
-            }
-            else
-                GuideTo(best);
-            RefreshTargetClaim();
         }
 
         /// <summary>Per-frame sticky: only dirty aim/target fields (skip full bool/IR warm).</summary>
@@ -7135,9 +5617,7 @@ namespace WeXon
                 Vector3 vel = target.rb != null ? target.rb.velocity : Vector3.zero;
                 SetSeekerField(_primary, "knownPos", gp);
                 SetSeekerField(_primary, "knownVel", vel);
-                // Optical often has no aimPos — CachedSeekerField neg-caches; skip extra work when absent.
-                if (CachedSeekerField(_primary.GetType(), "aimPos") != null)
-                    SetSeekerField(_primary, "aimPos", gp);
+                SetSeekerField(_primary, "aimPos", gp);
                 if (_secondary != null)
                 {
                     SetSeekerField(_secondary, "knownPos", gp);
@@ -7154,7 +5634,7 @@ namespace WeXon
         /// </summary>
         private void FeedSeekerLock(Unit target)
         {
-            if (_opticalLight || _primary == null || target == null || Plugin.IsEjectedPilotUnit(target))
+            if (_primary == null || target == null || Plugin.IsEjectedPilotUnit(target))
                 return;
 
             try
@@ -7168,8 +5648,6 @@ namespace WeXon
                 // Common: leave coasting / pre-guidance straight-line path
                 SetSeekerBool(_primary, "guidance", true);
                 SetSeekerBool(_primary, "deployedFins", true);
-                // OpticalSeeker lacks finsDeployed / targetOnLaunch / armed / aimPos on many builds —
-                // Resolve via cache (null cached); do not AccessTools-spam.
                 SetSeekerBool(_primary, "finsDeployed", true);
                 SetSeekerBool(_primary, "armed", true);
                 SetSeekerBool(_primary, "targetOnLaunch", true);
@@ -7182,12 +5660,14 @@ namespace WeXon
                 bool opticalFamily = typeof(OpticalSeeker).IsAssignableFrom(t)
                     || typeof(LaserSeeker).IsAssignableFrom(t)
                     || t.Name.IndexOf("Optical", StringComparison.OrdinalIgnoreCase) >= 0;
-                // Never force hasVisual / lastOpticalCheck — that re-triggers expensive Optical SlowChecks.
                 if (opticalFamily)
                 {
-                    // knownPos/targetTransform above are enough; leave visual pipeline to vanilla Seek.
+                    SetSeekerBool(_primary, "hasVisual", true);
+                    SetSeekerField(_primary, "lastOpticalCheck", Time.timeSinceLevelLoad);
                 }
-                else if (typeof(IRSeeker).IsAssignableFrom(t))
+
+                // IR: keep IRSource so Seek updates knownPos from the real target
+                if (typeof(IRSeeker).IsAssignableFrom(t))
                 {
                     try
                     {
@@ -7197,10 +5677,12 @@ namespace WeXon
                     }
                     catch { }
                 }
-                else if (typeof(ARHSeeker).IsAssignableFrom(t))
+
+                // ARH: skip datalink coast; use terminal track toward fed knownPos
+                if (typeof(ARHSeeker).IsAssignableFrom(t))
                     SetSeekerBool(_primary, "radarLockEstablished", true);
 
-                if (_secondary != null && !opticalFamily)
+                if (_secondary != null)
                 {
                     SetSeekerBool(_secondary, "guidance", true);
                     SetSeekerField(_secondary, "knownPos", gp);
@@ -7218,25 +5700,11 @@ namespace WeXon
                 return null;
             string key = seekerType.FullName + ":" + name;
             FieldInfo f;
-            if (SeekerFieldCache.TryGetValue(key, out f))
-                return f;
-
-            // DeclaredOnly walk — never AccessTools.Field (HarmonyX logs every inheritance miss).
-            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public
-                | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
-            Type st = seekerType;
-            while (st != null && st != typeof(object)
-                && st != typeof(MonoBehaviour)
-                && st != typeof(Behaviour)
-                && st != typeof(Component)
-                && st != typeof(UnityEngine.Object))
+            if (!SeekerFieldCache.TryGetValue(key, out f))
             {
-                f = st.GetField(name, flags);
-                if (f != null)
-                    break;
-                st = st.BaseType;
+                f = AccessTools.Field(seekerType, name);
+                SeekerFieldCache[key] = f;
             }
-            SeekerFieldCache[key] = f; // null = known missing
             return f;
         }
 
@@ -7265,16 +5733,15 @@ namespace WeXon
             if (target == null)
                 return;
             int id = target.GetInstanceID();
-            bool newId = id != _lastTargetId;
-            bool hadLock = _lastTargetId != 0;
-            _lastTargetId = id;
-            // First lock: energy clamp is enough. Re-lock / coast-then-acquire must soften
-            // or the snap dumps all airspeed.
-            bool relock = MultiModeGuideMathService.ShouldOpenSoftRetarget(
-                newId && hadLock, _needsRelockSoft);
-            _needsRelockSoft = false;
-            if (!relock)
+            if (id == _lastTargetId)
                 return;
+            _lastTargetId = id;
+            // Player sticky locks: never soft-retarget loft — that looked like "locked but flies away".
+            if (_playerDesignated)
+            {
+                _softRetargetUntil = 0f;
+                return;
+            }
             float soft = Plugin.SoftRetargetSeconds != null
                 ? Plugin.SoftRetargetSeconds.Value
                 : MultiModeGuideMathService.SoftRetargetDefaultSec;
@@ -7282,69 +5749,20 @@ namespace WeXon
                 Time.time, soft, _playerDesignated);
         }
 
-        /// <summary>
-        /// Optical LOAL: point at the unit (tiny lead). Energy look-ahead used to fly past.
-        /// Once the seeker has visual, vanilla Seek steers (loft/jink/terrain already stamped off).
-        /// </summary>
-        private void GuideOpticalLoal(Unit target)
+        /// <summary>Max commanded off-boresight (deg) so retargets do not dump all airspeed.</summary>
+        private static float MaxOffBoresightDeg(float speedMps, bool softRetarget)
         {
-            if (target == null || _missile == null)
-                return;
-            SyncSeekerTargetLight(target);
-            if (AgmDirectChaseService.SeekerHasVisual(_primary))
-            {
-                _guidanceOverride = false;
-                return;
-            }
-            try
-            {
-                Vector3 mpos = _missile.transform.position;
-                Vector3 tpos = target.transform.position;
-                Vector3 tvel = target.rb != null ? target.rb.velocity : Vector3.zero;
-                Vector3 fwd = _missile.rb != null && _missile.rb.velocity.sqrMagnitude > 1f
-                    ? _missile.rb.velocity.normalized
-                    : _missile.transform.forward;
-                Vector3 leadPos = AgmDirectChaseService.DirectAimPoint(mpos, tpos, tvel);
-                float speed = _missile.rb != null ? _missile.rb.velocity.magnitude : 0f;
-                float minSpd = Plugin.MinGuideSpeedMps != null ? Plugin.MinGuideSpeedMps.Value : 90f;
-                bool soft = Time.time < _softRetargetUntil;
-                Vector3 aimPos = MultiModeGuideMathService.ComputeAimPoint(
-                    mpos, fwd, speed, leadPos, false, minSpd, soft, _lastCmdDir, Time.fixedDeltaTime);
-                GlobalPosition lead = aimPos.ToGlobalPosition();
-                _missile.SetAimpoint(lead, tvel);
-                _aimpoint = lead;
-                _lastKnownAim = lead;
-                _lastKnownVel = tvel;
-                _hasLastKnownAim = true;
-                _guidanceOverride = true;
-                _aimSyncedFrame = Time.frameCount;
-                _lastGuideTime = Time.time;
-                _lastCmdDir = (aimPos - mpos).sqrMagnitude > 0.01f ? (aimPos - mpos).normalized : fwd;
-            }
-            catch { _guidanceOverride = true; }
+            return MultiModeGuideMathService.MaxOffBoresightDeg(speedMps, softRetarget);
         }
 
         private void GuideTo(Unit target)
         {
             if (_missile == null || target == null)
                 return;
-            if (HighAltMissileFreeze.IsFrozen(_missile))
-                return;
-            if (_opticalLight)
-            {
-                if (_stickyOnly || _playerDesignated || Plugin.ShouldDeferKh85GuideTo(_missile))
-                {
-                    SyncSeekerTargetLight(target);
-                    _guidanceOverride = false;
-                    return;
-                }
-                GuideOpticalLoal(target);
-                return;
-            }
             MultiModeGuideMathService.GuidePath path = MultiModeGuideMathService.ResolveGuidePath(
                 Plugin.IsEjectedPilotUnit(target),
                 _stickyOnly,
-                Plugin.ShouldDeferKh85GuideTo(_missile));
+                false);
             if (path == MultiModeGuideMathService.GuidePath.Skip)
                 return;
             if (path == MultiModeGuideMathService.GuidePath.CoastSticky)
@@ -7375,10 +5793,9 @@ namespace WeXon
                 Vector3 fwd = mvel.sqrMagnitude > 1f ? mvel.normalized : _missile.transform.forward;
 
                 Vector3 tvel = target.rb != null ? target.rb.velocity : Vector3.zero;
-                Vector3 tpos = target.transform.position;
+                float dist = Vector3.Distance(mpos, target.transform.position);
                 Vector3 leadPos = MultiModeGuideMathService.LeadPosition(
-                    mpos, fwd, speed, tpos, tvel);
-                float aspect = MultiModeGuideMathService.AspectDeg(fwd, mpos, leadPos);
+                    target.transform.position, tvel, dist, speed);
 
                 bool energyAware = Plugin.EnergyAwareGuide == null || Plugin.EnergyAwareGuide.Value;
                 float minSpd = Plugin.MinGuideSpeedMps != null
@@ -7387,20 +5804,44 @@ namespace WeXon
                 bool soft = MultiModeGuideMathService.IsSoftRetargetWindow(
                     _playerDesignated, _stickyOnly, Time.time, _softRetargetUntil);
 
-                float dist = Vector3.Distance(mpos, tpos);
-                bool terminal = MultiModeGuideMathService.WantTerminal(
-                    true, dist, Plugin.TerminalRange != null ? Plugin.TerminalRange.Value : 8000f,
-                    speed, minSpd, Time.time, _softRetargetUntil);
-                bool directChase = MultiModeGuideMathService.AllowDirectChase(
-                    energyAware, terminal, speed, minSpd, aspect);
+                float aspect = MultiModeGuideMathService.AspectDeg(fwd, mpos, target.transform.position);
+                bool aamHobs = (_playerDesignated || _stickyOnly)
+                    && Plugin.IsAirToAirMissile(_missile, _primary);
+                MultiModeGuideMathService.HobsPhase hobs =
+                    MultiModeGuideMathService.ResolveHobsPhase(aamHobs, aspect, speed, minSpd);
 
-                float dt = _lastGuideTime > 0.01f
-                    ? Mathf.Clamp(Time.time - _lastGuideTime, 0.016f, 0.25f)
-                    : 0.02f;
-                Vector3 aim = MultiModeGuideMathService.ComputeAimPoint(
-                    mpos, fwd, speed, leadPos, directChase, minSpd, soft, _lastCmdDir, dt);
-
-                // aim is local/scene — NEVER new GlobalPosition(local) (far-map 180° miss).
+                Vector3 aim;
+                float dt = Time.fixedDeltaTime;
+                Vector3 lastDir = _hasLastCmdDir ? _lastCmdDir : fwd;
+                if (hobs != MultiModeGuideMathService.HobsPhase.None)
+                {
+                    // Collision-course lead for rear snaps (not naive chase-behind).
+                    leadPos = MultiModeGuideMathService.LeadPosition(
+                        mpos, fwd, speed, target.transform.position, tvel);
+                    aim = MultiModeGuideMathService.ComputeHobsAimPoint(
+                        mpos, fwd, speed, leadPos, minSpd, hobs, lastDir, dt);
+                    if (MissileGLimitField != null)
+                    {
+                        float curG = 30f;
+                        try { curG = (float)MissileGLimitField.GetValue(_missile); } catch { }
+                        float orig = _hasOriginalGLimit ? _originalGLimit : curG;
+                        float wantG = MultiModeGuideMathService.CapGLimitForHobs(
+                            curG, orig, speed, minSpd, aspect, hobs);
+                        try { MissileGLimitField.SetValue(_missile, wantG); } catch { }
+                    }
+                }
+                else
+                {
+                    bool directChase = _playerDesignated || _stickyOnly || !energyAware;
+                    aim = MultiModeGuideMathService.ComputeAimPoint(
+                        mpos, fwd, speed, leadPos, directChase, minSpd, soft, lastDir, dt);
+                }
+                Vector3 cmd = aim - mpos;
+                if (cmd.sqrMagnitude > 0.01f)
+                {
+                    _lastCmdDir = cmd.normalized;
+                    _hasLastCmdDir = true;
+                }
                 GlobalPosition lead = aim.ToGlobalPosition();
                 _missile.SetAimpoint(lead, tvel);
                 _aimpoint = lead;
@@ -7409,33 +5850,18 @@ namespace WeXon
                 _hasLastKnownAim = true;
                 _guidanceOverride = true;
                 _aimSyncedFrame = Time.frameCount;
-                _lastCmdDir = (aim - mpos).sqrMagnitude > 0.01f ? (aim - mpos).normalized : fwd;
-                _lastGuideTime = Time.time;
 
-                if (energyAware && GLimitField != null && _hasOriginalGLimit)
-                {
-                    float g = (float)GLimitField.GetValue(_missile);
-                    float cap = MultiModeGuideMathService.CapGLimitForEnergy(
-                        g, _originalGLimit, speed, minSpd, soft, aspect);
-                    if (cap > 0.01f && Mathf.Abs(g - cap) > 0.05f)
-                        GLimitField.SetValue(_missile, cap);
-                }
-
-                // First lock warms once via NeedsFullSeekerWarm; later frames stay hot.
-                // Full SyncSeekerTarget (FeedSeekerLock) every LOAL GuideTo was a multi-second hitch.
-                SyncSeekerTargetHot(target);
+                // Sticky hot path: dirty aim fields only after warm; first lock still full warm.
+                if (_stickyOnly || _playerDesignated)
+                    SyncSeekerTargetHot(target);
+                else
+                    SyncSeekerTarget(target);
             }
             catch
             {
                 try
                 {
-                    Vector3 mpos = _missile.transform.position;
-                    Vector3 fwd = _missile.rb != null && _missile.rb.velocity.sqrMagnitude > 1f
-                        ? _missile.rb.velocity.normalized
-                        : _missile.transform.forward;
-                    float spd = _missile.rb != null ? _missile.rb.velocity.magnitude : 80f;
-                    Vector3 coastAim = mpos + fwd * Mathf.Clamp(spd * 2f, 400f, 1200f);
-                    GlobalPosition gp = coastAim.ToGlobalPosition();
+                    GlobalPosition gp = target.GlobalPosition();
                     _missile.SetAimpoint(gp, Vector3.zero);
                     _aimpoint = gp;
                     _lastKnownAim = gp;
@@ -7453,8 +5879,6 @@ namespace WeXon
         {
             if (!Plugin.AllowFreeAttack.Value || _missile == null)
                 return;
-            if (Plugin.Kh85LoalHuntDelayActive(_missile, _stickyOnly || _playerDesignated))
-                return;
             // Sticky-only missiles: never MadMode / grid hunt / sibling claim steal.
             if (_stickyOnly || _playerDesignated)
             {
@@ -7463,6 +5887,16 @@ namespace WeXon
                     GuideTo(_target);
                 else
                     CoastStickyLastKnown();
+                return;
+            }
+
+            // Player lock always wins over MadMode nearest-hostile.
+            Unit des = Plugin.ResolveDesignatedTarget(_missile);
+            if (des != null
+                && Plugin.IsDesignatedEngageable(_missile, Plugin.ResolveShooterSide(_missile), des))
+            {
+                MarkSticky(des);
+                GuideTo(_target);
                 return;
             }
 
@@ -7475,21 +5909,14 @@ namespace WeXon
                     ReleaseGuidanceToVanilla();
                 return;
             }
-            if (!Plugin.TryConsumeHuntQuery())
-            {
-                if (_target != null && IsAlive(_target) && CanEngage(_target, true))
-                    GuideTo(_target);
-                return;
-            }
-            bool acquiring = _target == null && !_stickyOnly && !_playerDesignated;
             _nextHunt = MultiModeGuideMathService.ScheduleNextHunt(
-                Time.time, acquiring ? 0.12f : Plugin.EffectiveHuntInterval());
+                Time.time, Plugin.MadModeSearchInterval.Value);
 
             GlobalPosition origin;
             try { origin = _missile.GlobalPosition(); }
             catch { origin = _missile.transform.position.ToGlobalPosition(); }
 
-            float radius = Plugin.EffectiveHuntRadius(_missile);
+            float radius = Plugin.MadModeSearchRadius.Value;
             _huntBuf.Clear();
             _huntSeen.Clear();
             try
@@ -7501,7 +5928,7 @@ namespace WeXon
             Unit best = null;
             float bestDist = float.MaxValue;
             Vector3 mpos = _missile.transform.position;
-            bool surfaceOnly = Plugin.MissileHuntsSurfaceOnly(_missile, _primary);
+            bool surfaceOnly = Plugin.IsSurfaceAttackSeeker(_primary);
 
             // Grid only — avoid full UnitRegistry.allUnits scan every hunt.
             ConsiderHuntList(_huntBuf, mpos, radius, surfaceOnly, ref best, ref bestDist);
@@ -7516,11 +5943,7 @@ namespace WeXon
             _playerDesignated = false;
             SyncSeekerTarget(best);
             RefreshTargetClaim();
-            // C/E/S (and unstamped Kh85): Kh85MT Steering owns aim — never GuideTo from hunt.
-            if (!Plugin.ShouldDeferKh85GuideTo(_missile))
-                GuideTo(best);
-            else
-                _guidanceOverride = false;
+            GuideTo(best);
             EnsureFinsAndArm();
 
             if (Plugin.DebugLog.Value)
@@ -7560,27 +5983,38 @@ namespace WeXon
         {
             if (units == null)
                 return;
+            if (_missile == null)
+                return;
+            // Always hunt about velocity (LOAL must not yank into stall for rear/side nearest).
             Vector3 fwd = Vector3.forward;
-            float minDot = -1f;
-            float fov = Plugin.MadModeSearchAngle != null ? Plugin.MadModeSearchAngle.Value : 360f;
-            if (fov < 359f)
+            float spd = 0f;
+            try
             {
-                try
+                if (_missile.rb != null && _missile.rb.velocity.sqrMagnitude > 16f)
                 {
-                    if (_missile.rb != null && _missile.rb.velocity.sqrMagnitude > 16f)
-                        fwd = _missile.rb.velocity.normalized;
-                    else
-                        fwd = _missile.transform.forward;
+                    fwd = _missile.rb.velocity.normalized;
+                    spd = _missile.rb.velocity.magnitude;
                 }
-                catch
-                {
-                    try { fwd = _missile.transform.forward; }
-                    catch { }
-                }
-                if (fov < 1f)
-                    fov = 1f;
-                minDot = Mathf.Cos(fov * Mathf.Deg2Rad);
+                else
+                    fwd = _missile.transform.forward;
             }
+            catch
+            {
+                try { fwd = _missile.transform.forward; }
+                catch { }
+            }
+            float fov = Plugin.MadModeSearchAngle != null ? Plugin.MadModeSearchAngle.Value : 110f;
+            if (fov >= 350f)
+                fov = 110f;
+            if (fov < 1f)
+                fov = 1f;
+            float minDot = Mathf.Cos(fov * Mathf.Deg2Rad);
+            float maxOff = MultiModeGuideMathService.MaxOffBoresightDeg(spd, true);
+            float energyDot = Mathf.Cos(maxOff * Mathf.Deg2Rad);
+            if (energyDot > minDot)
+                minDot = energyDot;
+            int n = 0;
+            int cap = s_huntUnits.Length;
             for (int i = 0; i < units.Count; i++)
             {
                 Unit u = units[i];
@@ -7590,8 +6024,6 @@ namespace WeXon
                     continue;
                 if (!CanEngage(u, true))
                     continue;
-                if (!Plugin.TargetFitsSeekerFamily(_missile, _primary, u))
-                    continue;
                 if (surfaceOnly && !Plugin.IsSurfaceUnit(u))
                     continue;
                 if (u is Missile)
@@ -7600,28 +6032,61 @@ namespace WeXon
                     if (om.owner != null && object.ReferenceEquals(om.owner, _missile.owner))
                         continue;
                 }
-
-                Vector3 to = u.transform.position - mpos;
-                float dist = to.magnitude;
-                if (dist > radius || dist < 5f)
-                    continue;
-                if (minDot > -0.999f && Vector3.Dot(fwd, to / dist) < minDot)
-                    continue;
-
-                // Sticky sibling owns this Unit — never steal / retarget onto it.
                 if (IsClaimedByStickySibling(u))
                     continue;
 
-                // Soft prefer targets not already claimed by a free-hunt sibling.
-                if (IsClaimedBySibling(u))
-                    dist += 2500f;
-
-                if (dist < bestDist)
+                Vector3 p;
+                try { p = u.transform.position; }
+                catch { continue; }
+                if (n >= cap)
                 {
-                    bestDist = dist;
-                    best = u;
+                    int nc = cap * 2;
+                    System.Array.Resize(ref s_huntCx, nc);
+                    System.Array.Resize(ref s_huntCy, nc);
+                    System.Array.Resize(ref s_huntCz, nc);
+                    System.Array.Resize(ref s_huntSoft, nc);
+                    System.Array.Resize(ref s_huntScore, nc);
+                    System.Array.Resize(ref s_huntUnits, nc);
+                    cap = nc;
                 }
+                s_huntCx[n] = p.x;
+                s_huntCy[n] = p.y;
+                s_huntCz[n] = p.z;
+                s_huntSoft[n] = IsClaimedBySibling(u) ? HuntScoreMathService.SoftClaimPenaltyM : 0f;
+                s_huntUnits[n] = u;
+                n++;
             }
+            s_huntScratchN = n;
+            if (n <= 0)
+                return;
+
+            float mx = mpos.x, my = mpos.y, mz = mpos.z;
+            float fx = fwd.x, fy = fwd.y, fz = fwd.z;
+            float md = minDot, rad = radius;
+            Oritasy.MtPureMathBatch.FillScores(n, s_huntScore, (start, end) =>
+            {
+                for (int i = start; i < end; i++)
+                {
+                    s_huntScore[i] = HuntScoreMathService.ScoreCandidate(
+                        mx, my, mz,
+                        s_huntCx[i], s_huntCy[i], s_huntCz[i],
+                        fx, fy, fz, md, rad, s_huntSoft[i]);
+                }
+            });
+
+            if (_missile == null)
+                return;
+            int bestIdx = Oritasy.MtPureMathBatch.IndexOfMin(s_huntScore, n);
+            if (bestIdx < 0)
+                return;
+            float score = s_huntScore[bestIdx];
+            if (float.IsInfinity(score) || score >= bestDist)
+                return;
+            Unit pick = s_huntUnits[bestIdx];
+            if (pick == null)
+                return;
+            best = pick;
+            bestDist = score;
         }
 
         private void EnsureSecondary()
@@ -7661,55 +6126,10 @@ namespace WeXon
             return typeof(ARHSeeker);
         }
 
-        /// <summary>
-        /// Slow maintenance only — never from Missile.FixedUpdate.
-        /// Interval = MadModeSearchInterval (min 0.5s; optical/laser min 1s).
-        /// LowSpeed SD + YieldProx: ~4 Hz here (was every FixedUpdate).
-        /// </summary>
-        private void Update()
-        {
-            TickSlow();
-        }
-
-        private void TickSlow()
-        {
-            if (!_ready || _missile == null)
-                return;
-            int f = Time.frameCount;
-            if (_tickFrame == f)
-                return;
-            _tickFrame = f;
-
-            float nowU = Time.unscaledTime;
-            if (nowU >= _nextSafetyTick)
-            {
-                _nextSafetyTick = nowU + 0.25f;
-                Plugin.TickLowSpeedSelfDestruct(_missile);
-                YieldProximityFuze.TickFallback(_missile);
-            }
-
-            float interval = Plugin.MadModeSearchInterval != null
-                ? Plugin.MadModeSearchInterval.Value
-                : 0.5f;
-            bool openLoal = _target == null && !_stickyOnly && !_playerDesignated
-                && Plugin.AllowFreeAttack != null && Plugin.AllowFreeAttack.Value;
-            if (openLoal)
-                interval = 0.08f;
-            else if (_opticalLight && (_stickyOnly || _playerDesignated))
-                interval = Mathf.Max(1f, interval);
-            else if (_opticalLight)
-                interval = Mathf.Max(0.25f, interval);
-            else
-                interval = Mathf.Max(0.5f, interval);
-            float now = Time.time;
-            if (now < _nextSlowTick)
-                return;
-            _nextSlowTick = now + interval;
-            BeforeMissileUpdate();
-        }
-
         public void BeforeMissileUpdate()
         {
+            // No frame-skip here: LOAL re-lock + open-hunt must run every FixedUpdate.
+            // Salvo cost is cut in YieldProximityFuze.NeedsYieldProxHot (conventional sticky-skip).
 
             MultiModeTickGateService.EarlyOut early = MultiModeTickGateService.ResolveBeforeEarly(
                 _ready,
@@ -7729,79 +6149,17 @@ namespace WeXon
                 return;
             }
 
-            // Was every FixedUpdate — major cost. Throttle; GuideTo path also calls when needed.
-            if (MultiModeGuideMathService.NeedsFinEnsure(_stickyOnly || _opticalLight, Time.time, _nextFinBoost))
-            {
-                EnsureFinsAndArm();
-                _nextFinBoost = MultiModeGuideMathService.ScheduleNextFinBoost(Time.time);
-            }
+            EnsureFinsAndArm();
 
             if (_primary != null && SeekerField != null)
                 SeekerField.SetValue(_missile, _primary);
 
-            // 0.7 Optical/Laser light path: lock assist only, no GuideTo/FeedSeekerLock fight.
-            if (_opticalLight)
-            {
-                OpticalLightBeforeTick();
-                return;
-            }
-
             MultiModeTickGateService.ModeBranch branch = MultiModeTickGateService.ResolveModeBranch(
                 ShipLaunchNeedsCoast(),
-                Plugin.IsKh85CTerrainMissile(_missile),
                 _playerDesignated || _stickyOnly);
 
             if (branch == MultiModeTickGateService.ModeBranch.ShipCoast)
             {
-                _guidanceOverride = false;
-                return;
-            }
-
-            if (branch == MultiModeTickGateService.ModeBranch.Kh85Terrain)
-            {
-                if (_playerDesignated || _stickyOnly)
-                {
-                    MultiModeTickGateService.Kh85StickyAction kh = MultiModeTickGateService.ResolveKh85Sticky(
-                        _target != null && Plugin.IsEjectedPilotUnit(_target),
-                        _target != null,
-                        _target != null && IsAlive(_target),
-                        _target != null && IsConfirmedFriendly(_target));
-                    if (kh == MultiModeTickGateService.Kh85StickyAction.DropCoast)
-                    {
-                        DropTarget();
-                        CoastStickyLastKnown();
-                    }
-                    else
-                        SyncSeekerTargetHot(_target);
-                }
-                else if (Plugin.Kh85LoalHuntDelayActive(_missile, false))
-                {
-                    _guidanceOverride = false;
-                }
-                else if (MultiModeTickGateService.DesignatedCheckDue(Time.time, _nextDesignatedCheck))
-                {
-                    _nextDesignatedCheck = MultiModeTickGateService.ScheduleNextDesignatedCheck(Time.time);
-                    Unit designatedC = Plugin.ResolveMissileOwnTarget(_missile);
-                    if (designatedC != null && CanEngage(designatedC, true)
-                        && Plugin.TargetFitsSeekerFamily(_missile, _primary, designatedC))
-                    {
-                        MarkSticky(designatedC);
-                        SyncSeekerTarget(_target);
-                    }
-                }
-                MultiModeTickGateService.OpenHuntAction free = MultiModeTickGateService.ResolveKh85Free(
-                    Plugin.AllowFreeAttack.Value,
-                    _stickyOnly,
-                    _playerDesignated,
-                    _target != null && IsAlive(_target) && CanEngage(_target, true),
-                    Time.time >= _nextHunt);
-                if (free == MultiModeTickGateService.OpenHuntAction.SyncHotExisting)
-                    SyncSeekerTarget(_target);
-                else if (free == MultiModeTickGateService.OpenHuntAction.TryFreeHunt)
-                {
-                    TryFreeHunt();
-                    _guidanceOverride = false;
-                }
                 _guidanceOverride = false;
                 return;
             }
@@ -7815,12 +6173,7 @@ namespace WeXon
                     _target != null && IsConfirmedFriendly(_target));
                 if (st == MultiModeTickGateService.StickyAction.GuideAlive)
                 {
-                    // 0.7 never GuideTo'd every physics frame — throttle ~10 Hz.
-                    if (Time.time >= _nextStickyGuide)
-                    {
-                        _nextStickyGuide = Time.time + 0.1f;
-                        GuideTo(_target);
-                    }
+                    GuideTo(_target);
                     ApplyTerminalBoostIfNeeded();
                     return;
                 }
@@ -7830,25 +6183,17 @@ namespace WeXon
                 return;
             }
 
-            if (Plugin.Kh85LoalHuntDelayActive(_missile, false))
+            // 265C: every frame — designation must beat LOAL before TryFreeHunt.
+            Unit designatedNow = Plugin.ResolveDesignatedTarget(_missile);
+            if (designatedNow != null
+                && Plugin.IsDesignatedEngageable(_missile, Plugin.ResolveShooterSide(_missile), designatedNow))
             {
+                MarkSticky(designatedNow);
+                GuideTo(_target);
                 ApplyTerminalBoostIfNeeded();
                 return;
             }
-
-            if (MultiModeTickGateService.DesignatedCheckDue(Time.time, _nextDesignatedCheck))
-            {
-                _nextDesignatedCheck = MultiModeTickGateService.ScheduleNextDesignatedCheck(Time.time);
-                Unit designated = Plugin.ResolveMissileOwnTarget(_missile);
-                if (designated != null && CanEngage(designated, true)
-                    && Plugin.TargetFitsSeekerFamily(_missile, _primary, designated))
-                {
-                    MarkSticky(designated);
-                    GuideTo(_target);
-                    ApplyTerminalBoostIfNeeded();
-                    return;
-                }
-            }
+            _nextDesignatedCheck = MultiModeTickGateService.ScheduleNextDesignatedCheck(Time.time);
 
             if (_target != null && (Plugin.IsEjectedPilotUnit(_target)
                 || !IsAlive(_target) || !CanEngage(_target, true)))
@@ -7899,8 +6244,7 @@ namespace WeXon
 
             if (_terminal)
             {
-                if (Plugin.TerminalGLimit.Value > 0f && MissileGLimitField != null
-                    && !Aam2CvWeapon.IsAam2CvMissile(_missile))
+                if (Plugin.TerminalGLimit.Value > 0f && MissileGLimitField != null)
                     MissileGLimitField.SetValue(_missile, Plugin.TerminalGLimit.Value);
                 if (Plugin.TerminalBoostAmount.Value > 0f)
                 {
@@ -7912,61 +6256,6 @@ namespace WeXon
             {
                 MissileGLimitField.SetValue(_missile, _originalGLimit);
             }
-        }
-    }
-
-    /// <summary>
-    /// Aircraft pylonOptions bind the vanilla AAM-29 / AAM-36 WeaponMount.
-    /// ACM-119 / AAM-2CV are clones, so MatchesMount would hide the adapter.
-    /// </summary>
-    [HarmonyPatch]
-    internal static class Patch_HardpointPylon_MatchesMount_WeXon
-    {
-        private static readonly FieldInfo BoundMountField;
-
-        static Patch_HardpointPylon_MatchesMount_WeXon()
-        {
-            Type nested = AccessTools.Inner(typeof(Hardpoint), "HardpointPylon");
-            BoundMountField = nested != null ? AccessTools.Field(nested, "mount") : null;
-        }
-
-        [HarmonyTargetMethod]
-        private static MethodBase TargetMethod()
-        {
-            Type nested = AccessTools.Inner(typeof(Hardpoint), "HardpointPylon");
-            if (nested == null)
-                return null;
-            return AccessTools.Method(nested, "MatchesMount", new Type[] { typeof(WeaponMount) });
-        }
-
-        [HarmonyPostfix]
-        private static void Postfix(object __instance, WeaponMount mount, ref bool __result)
-        {
-            if (__result || mount == null || __instance == null || BoundMountField == null)
-                return;
-            bool ours = AgmTWeapon.IsAgmTMount(mount) || Aam2CvWeapon.IsAam2CvMount(mount);
-            if (!ours)
-                return;
-            WeaponMount bound = null;
-            try { bound = BoundMountField.GetValue(__instance) as WeaponMount; }
-            catch { return; }
-            if (bound == null)
-                return;
-            if (AgmTWeapon.IsAgmTMount(bound) || Aam2CvWeapon.IsAam2CvMount(bound))
-            {
-                __result = true;
-                return;
-            }
-            string sn = bound.info != null && bound.info.shortName != null
-                ? bound.info.shortName : string.Empty;
-            string wn = bound.info != null && bound.info.weaponName != null
-                ? bound.info.weaponName : string.Empty;
-            if (AgmTWeapon.IsAgmTMount(mount)
-                && AgmTAssetGateService.IsAam29Donor(bound.jsonKey, sn, wn))
-                __result = true;
-            else if (Aam2CvWeapon.IsAam2CvMount(mount)
-                && Aam2CvGateService.IsAam36Donor(bound.jsonKey, sn, wn))
-                __result = true;
         }
     }
 }

@@ -38,6 +38,8 @@ namespace Oritasy
         {
             if (aircraft == null || !AircraftIdentity.IsXeAircraft(aircraft))
                 return;
+            if (AircraftIdentity.IsIcarusOnly(aircraft))
+                return;
             if (!Plugin.IsRuntimeInstance(aircraft))
                 return;
 

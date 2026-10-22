@@ -152,7 +152,7 @@ namespace Oritasy
 
         private static void OpenMenu()
         {
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
                 return;
             if (AircraftManeuverGui.IsOpen)
                 AircraftManeuverGui.Close();
@@ -160,8 +160,8 @@ namespace Oritasy
                 PlayerAutopilot.CloseMenuFromOutside();
             if (AerialResupply.MenuOpen)
                 AerialResupply.CloseMenuFromOutside();
-            if (WarThunderRwrHud.LayoutMenuOpen)
-                WarThunderRwrHud.CloseLayoutMenuFromOutside();
+            if (HudPackState.LayoutMenuOpen)
+                HudPackState.CloseRwr();
             if (BeginnerAssist.MenuOpen)
                 BeginnerAssist.CloseMenuFromOutside();
             if (IlsSettingsMenu.MenuOpen)
@@ -170,7 +170,7 @@ namespace Oritasy
                 KillChoiceMenu.CloseMenuFromOutside();
             if (HostFundMenu.MenuOpen)
                 HostFundMenu.CloseMenuFromOutside();
-            AirframeWearGui.CloseFromOutside();
+            HudPackState.CloseWear();
             PlayerAutopilot.CloseWeXonSupportMenu();
             _menuOpen = true;
             _unread = false;
@@ -553,8 +553,12 @@ namespace Oritasy
             if (!float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out amount))
                 return false;
             amount = Mathf.Floor(amount * 10f + 0.001f) / 10f;
-            if (amount < MinTransferM || amount > MaxTransferM)
+            // Written as a positive range test so NaN fails it (NaN compares false both ways).
+            if (!(amount >= MinTransferM && amount <= MaxTransferM))
+            {
+                amount = 0f;
                 return false;
+            }
             return true;
         }
 
@@ -861,7 +865,7 @@ namespace Oritasy
             float have = 0f;
             try { have = senderPlayer.Allocation; }
             catch { }
-            if (have + 0.001f < amount)
+            if (!(amount > 0f && have + 0.001f >= amount))
             {
                 SendTransferFail(mgr, sender, senderPlayer, "NOFUNDS");
                 return true;

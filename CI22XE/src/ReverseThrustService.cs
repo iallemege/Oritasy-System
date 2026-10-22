@@ -99,8 +99,7 @@ namespace Oritasy
         private static readonly HashSet<int> Capability = new HashSet<int>();
         private static readonly HashSet<int> AiReverseDecided = new HashSet<int>();
         private static readonly HashSet<int> AiReverseUse = new HashSet<int>();
-        private static int _heloCacheId;
-        private static bool _heloCache;
+        private static readonly Dictionary<int, bool> HeloById = new Dictionary<int, bool>(128);
 
         private static float _signed;
         private static int _boundAircraftId;
@@ -283,12 +282,30 @@ namespace Oritasy
         {
             if (ac == null)
                 return false;
-            int id = ac.GetInstanceID();
-            if (id == _heloCacheId)
-                return _heloCache;
-            _heloCacheId = id;
-            _heloCache = DetectHelicopter(ac);
-            return _heloCache;
+            int id = 0;
+            try { id = ac.GetInstanceID(); }
+            catch { return false; }
+            bool cached;
+            if (HeloById.TryGetValue(id, out cached))
+                return cached;
+            cached = DetectHelicopter(ac);
+            HeloById[id] = cached;
+            return cached;
+        }
+
+        internal static void ForgetAircraft(Aircraft ac)
+        {
+            if (ac == null)
+                return;
+            try
+            {
+                int id = ac.GetInstanceID();
+                HeloById.Remove(id);
+                Capability.Remove(id);
+                AiReverseDecided.Remove(id);
+                AiReverseUse.Remove(id);
+            }
+            catch { }
         }
 
         private static bool DetectHelicopter(Aircraft ac)
@@ -376,17 +393,8 @@ namespace Oritasy
         {
             if (ac == null || !ac.LocalSim)
                 return false;
-            try
-            {
-                Aircraft local;
-                if (!GameManager.GetLocalAircraft(out local) || local == null)
-                    return false;
-                return object.ReferenceEquals(local, ac);
-            }
-            catch
-            {
-                return false;
-            }
+            Aircraft local = AircraftIdentity.CachedLocal();
+            return local != null && object.ReferenceEquals(local, ac);
         }
 
         internal static bool EngineRunning(Aircraft ac)
@@ -399,13 +407,15 @@ namespace Oritasy
 
         internal static bool IsActive(Aircraft ac)
         {
+            if (ReverseAmount() <= 0f)
+                return false;
             if (!IsOn() || !AllowsReverse(ac))
                 return false;
             if (!IsLocalAircraft(ac) || !IsPlayerFlown(ac))
                 return false;
             if (!EngineRunning(ac))
                 return false;
-            return ReverseAmount() > 0f;
+            return true;
         }
 
         internal static bool VisualReverse
@@ -819,17 +829,28 @@ namespace Oritasy
 
         internal static void ApplyAirframeReverse(Aircraft ac)
         {
-            if (ac == null || ac.rb == null || !IsOn() || !AllowsReverse(ac))
+            if (ac == null || ac.rb == null || !IsOn())
                 return;
             float amt = 0f;
-            if (IsLocalAircraft(ac) && IsPlayerFlown(ac))
+            Aircraft local = AircraftIdentity.CachedLocal();
+            bool player = local != null && object.ReferenceEquals(ac, local);
+            if (player)
             {
+                if (!IsPlayerFlown(ac) || !AllowsReverse(ac))
+                    return;
                 if (!EngineRunning(ac))
                     return;
                 amt = ReverseAmount();
             }
             else
+            {
+                float ralt = 999f;
+                try { ralt = ac.radarAlt; }
+                catch { return; }
+                if (ralt >= 50f)
+                    return;
                 amt = AiLandingReverseAmount(ac);
+            }
             if (amt < 0.02f)
                 return;
             float maxT = 0f;
@@ -1286,6 +1307,8 @@ namespace Oritasy
         [HarmonyPostfix]
         private static void Postfix(PilotPlayerState __instance)
         {
+            if (InfantryModeService.BlocksAircraftInput)
+                return;
             ReverseThrustService.ApplySignedThrottle(__instance);
         }
     }
@@ -1486,14 +1509,9 @@ namespace Oritasy
         }
     }
 
-    [HarmonyPatch(typeof(Aircraft), "FixedUpdate")]
     internal static class Patch_Aircraft_ReverseThrustAir
     {
-        [HarmonyPostfix]
-        private static void Postfix(Aircraft __instance)
-        {
-            ReverseThrustService.ApplyAirframeReverse(__instance);
-        }
+        // Aircraft.FixedUpdate postfix lives on Patch_Bia_SpawnGrace (one Harmony invoke).
     }
 
     [HarmonyPatch(typeof(LandingGear), "FixedUpdate")]
@@ -1502,12 +1520,16 @@ namespace Oritasy
         [HarmonyPrefix]
         private static void Prefix(LandingGear __instance)
         {
+            if (ReverseThrustService.ReverseAmount() <= 0f)
+                return;
             ReverseThrustService.BeginGearReverseHold(__instance);
         }
 
         [HarmonyPostfix]
         private static void Postfix(LandingGear __instance)
         {
+            if (ReverseThrustService.ReverseAmount() <= 0f)
+                return;
             ReverseThrustService.EndGearReverseHold(__instance);
         }
     }
@@ -1521,6 +1543,8 @@ namespace Oritasy
         [HarmonyPrefix]
         private static void Prefix(Airbrake __instance)
         {
+            if (ReverseThrustService.ReverseAmount() <= 0f)
+                return;
             ControlInputs inputs = null;
             if (BrakeInputs != null)
             {
@@ -1533,6 +1557,8 @@ namespace Oritasy
         [HarmonyPostfix]
         private static void Postfix(Airbrake __instance)
         {
+            if (ReverseThrustService.ReverseAmount() <= 0f)
+                return;
             ControlInputs inputs = null;
             if (BrakeInputs != null)
             {

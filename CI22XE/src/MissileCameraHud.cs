@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -28,6 +29,12 @@ namespace Oritasy
         private static readonly Type MotorType = typeof(Missile).GetNestedType("Motor", BindingFlags.NonPublic);
         private static readonly FieldInfo MotorFuelField = MotorType != null
             ? AccessTools.Field(MotorType, "fuelMass") : null;
+        private static readonly Func<Missile, float> GetGLimit = FastField.Get<Missile, float>(GLimitField);
+        private static readonly Action<Missile, float> SetGLimit = FastField.Set<Missile, float>(GLimitField);
+        private static readonly Func<MissileSeeker, Missile> GetSeekerMissile = FastField.Get<MissileSeeker, Missile>(SeekerMissileField);
+        private static readonly Func<Missile, MissileSeeker> GetSeeker = FastField.Get<Missile, MissileSeeker>(SeekerField);
+        private static readonly Func<MissileSeeker, Unit> GetSeekerTarget = FastField.Get<MissileSeeker, Unit>(SeekerTargetField);
+        private static readonly Func<Missile, Unit> GetMissileTarget = FastField.Get<Missile, Unit>(MissileTargetField);
         private static RenderTexture _rt;
         private static Camera _cam;
         private static GameObject _camGo;
@@ -37,6 +44,7 @@ namespace Oritasy
         private static GameObject _acCamGo;
         private static Missile _follow;
         private static bool _overlayOn = true;
+        private static float _nextIdlePrune;
         private static bool _manualPilot;
         private static bool _savedFlightControls = true;
         private static bool _hasSavedFlightControls;
@@ -84,11 +92,11 @@ namespace Oritasy
 
         internal static bool IsManualPilotingSeeker(MissileSeeker seeker)
         {
-            if (!_manualPilot || seeker == null || SeekerMissileField == null)
+            if (!_manualPilot || seeker == null || GetSeekerMissile == null)
                 return false;
             try
             {
-                return IsManualPiloting(SeekerMissileField.GetValue(seeker) as Missile);
+                return IsManualPiloting(GetSeekerMissile(seeker));
             }
             catch
             {
@@ -144,6 +152,7 @@ namespace Oritasy
             UpdateChaseCamera(pick);
         }
 
+        [SkipLocalsInit]
         internal static void Tick()
         {
             if (Plugin.ManualMissileKey != null && Input.GetKeyDown(Plugin.ManualMissileKey.Value))
@@ -165,6 +174,32 @@ namespace Oritasy
                     BeginManualOn(_follow);
             }
 
+            bool featureOn = Plugin.MissileCamera != null && Plugin.MissileCamera.Value;
+            // Heavy path only for MITL or when we already track live missiles.
+            // Overlay-on with empty list: rare fallback scan (NotifySpawn is primary).
+            if (!_manualPilot && Tracked.Count == 0)
+            {
+                if (Time.unscaledTime >= _nextIdlePrune)
+                {
+                    _nextIdlePrune = Time.unscaledTime + 1.5f;
+                    if (_overlayOn && featureOn
+                        && MissileCameraLifecycleService.ShouldRunFallbackScan(Time.unscaledTime, _nextScan))
+                    {
+                        _nextScan = MissileCameraLifecycleService.ScheduleNextScan(Time.unscaledTime);
+                        ScanForMissiles();
+                        if (_follow == null || !IsMissileAlive(_follow))
+                            PickFollow();
+                    }
+                }
+                if (Tracked.Count == 0 || _follow == null || !IsMissileAlive(_follow)
+                    || !_overlayOn || !featureOn)
+                {
+                    SetCamActive(false);
+                    SetAircraftCamActive(false);
+                    return;
+                }
+            }
+
             PruneTracked();
 
             bool followAlive = _follow != null && IsMissileAlive(_follow);
@@ -174,7 +209,6 @@ namespace Oritasy
                 return;
             }
 
-            bool featureOn = Plugin.MissileCamera != null && Plugin.MissileCamera.Value;
             MissileCameraLifecycleService.Phase phase = MissileCameraLifecycleService.ResolvePhase(
                 _manualPilot, followAlive, featureOn, _overlayOn);
 
@@ -190,8 +224,6 @@ namespace Oritasy
                 UpdateManualAim(_follow, Time.unscaledDeltaTime);
                 UpdateManualThrottle(_follow, Time.unscaledDeltaTime);
                 UpdateTelemetry(_follow);
-                // Only override seeker aim while WASD is held.
-                // Idle → vanilla Seek keeps cruise terrain-follow / arming / fuse logic.
                 if (_steerActive)
                     WriteManualAimpoint(_follow);
                 return;
@@ -205,7 +237,7 @@ namespace Oritasy
                 return;
             }
 
-            // PipChase — NotifySpawn covers new shots; rare scan is only a fallback
+            // PipChase — only build RT camera when we actually have a live follow.
             if (MissileCameraLifecycleService.ShouldRunFallbackScan(Time.unscaledTime, _nextScan))
             {
                 _nextScan = MissileCameraLifecycleService.ScheduleNextScan(Time.unscaledTime);
@@ -393,14 +425,14 @@ namespace Oritasy
             ApplyManualThrottle(missile);
             SuppressSeekerTerrainAvoid(missile);
 
-            if (GLimitField != null)
+            if (GetGLimit != null && SetGLimit != null)
             {
                 try
                 {
-                    _savedGLimit = (float)GLimitField.GetValue(missile);
+                    _savedGLimit = GetGLimit(missile);
                     // 0 = unlimited in vanilla; leave alone. Low caps feel soggy for MCLOS.
                     if (_savedGLimit > 0f && _savedGLimit < 35f)
-                        GLimitField.SetValue(missile, 40f);
+                        SetGLimit(missile, 40f);
                 }
                 catch { _savedGLimit = -1f; }
             }
@@ -421,9 +453,9 @@ namespace Oritasy
             Missile m = _follow;
             _manualPilot = false;
 
-            if (m != null && GLimitField != null && _savedGLimit >= 0f)
+            if (m != null && SetGLimit != null && _savedGLimit >= 0f)
             {
-                try { GLimitField.SetValue(m, _savedGLimit); }
+                try { SetGLimit(m, _savedGLimit); }
                 catch { }
             }
             _savedGLimit = -1f;
@@ -1192,12 +1224,12 @@ namespace Oritasy
 
             try
             {
-                if (SeekerField != null && SeekerTargetField != null)
+                if (GetSeeker != null && GetSeekerTarget != null)
                 {
-                    MissileSeeker seeker = SeekerField.GetValue(missile) as MissileSeeker;
+                    MissileSeeker seeker = GetSeeker(missile);
                     if (seeker != null)
                     {
-                        Unit st = SeekerTargetField.GetValue(seeker) as Unit;
+                        Unit st = GetSeekerTarget(seeker);
                         if (st != null)
                             return st;
                     }
@@ -1207,9 +1239,9 @@ namespace Oritasy
 
             try
             {
-                if (MissileTargetField != null)
+                if (GetMissileTarget != null)
                 {
-                    Unit mt = MissileTargetField.GetValue(missile) as Unit;
+                    Unit mt = GetMissileTarget(missile);
                     if (mt != null)
                         return mt;
                 }

@@ -22,10 +22,10 @@ namespace Oritasy
         internal static string BeginnerChip(bool takeoffActive, bool menuOpen)
         {
             if (takeoffActive)
-                return UiLang.T("F3 Beginner mode  |  TAKEOFF", "F3 新手模式  |  起飞中");
+                return UiLang.T("F3 Anti-crash  |  TAKEOFF", "F3 防坠机系统  |  起飞中");
             if (menuOpen)
-                return UiLang.T("F3 Beginner mode  |  OPEN", "F3 新手模式  |  已打开");
-            return UiLang.T("F3 Beginner mode", "F3 新手模式");
+                return UiLang.T("F3 Anti-crash  |  OPEN", "F3 防坠机系统  |  已打开");
+            return UiLang.T("F3 Anti-crash", "F3 防坠机系统");
         }
 
         internal static string ResupplyChip(bool active, int progressPct)

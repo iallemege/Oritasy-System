@@ -7,6 +7,7 @@ using BepInEx.Logging;
 using HarmonyLib;
 using NuclearOption.Networking;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Oritasy
 {
@@ -59,14 +60,26 @@ namespace Oritasy
             get
             {
                 return SplashActive || _welcomeOpen || _changelogOpen
-                    || BeginnerAssist.MissionTipActive;
+                    || GitHubUpdateService.PanelOpen
+                    || BeginnerAssist.MissionTipActive
+                    || BiaBoot.Visible;
             }
+        }
+
+        /// <summary>
+        /// True only on the real title screen. A live local aircraft or hangar
+        /// selection menu wins over a leftover enabled MainMenu object.
+        /// </summary>
+        internal static bool MainMenuActive
+        {
+            get { return IsMainMenuScene(); }
         }
 
         /// <summary>True while boot splash / welcome / changelog overlays own the screen.</summary>
         internal static bool OverlayActive
         {
-            get { return SplashActive || _welcomeOpen || _changelogOpen; }
+            get { return SplashActive || _welcomeOpen || _changelogOpen
+                || GitHubUpdateService.PanelOpen || BiaBoot.Visible; }
         }
 
         /// <summary>Queue splash; countdown begins on the first real OnGUI/Repaint frame.</summary>
@@ -113,7 +126,7 @@ namespace Oritasy
                     _welcomePending = true;
                 }
             }
-            if (_welcomePending && !_welcomeOpen)
+            if (_welcomePending && !_welcomeOpen && !BiaBoot.Visible)
                 OpenWelcome(false);
 
             if (_welcomeOpen)
@@ -126,14 +139,14 @@ namespace Oritasy
             }
             else
             {
-                if (Plugin.AllowThirdPersonUi)
-                    DrawHudBrand();
                 if (IsMainMenuScene())
                     DrawVersionChip();
             }
 
-            // Help is the launch guide — always on after splash, not overlay chrome.
+            // Help stays on the title screen. In a match it covers the HUD.
             DrawHelpChip();
+            DrawMatchWatermark();
+            GitHubUpdateService.Draw();
         }
 
         private static void OpenWelcome(bool fromChip)
@@ -190,11 +203,38 @@ namespace Oritasy
             ReleaseCursor();
         }
 
+        private static bool LocalRuntimeAircraftPresent()
+        {
+            try
+            {
+                Aircraft ac;
+                if (GameManager.GetLocalAircraft(out ac) && ac != null
+                    && Plugin.IsRuntimeInstance(ac))
+                    return true;
+            }
+            catch { }
+            return false;
+        }
+
+        private static bool SelectionMenuOpen()
+        {
+            try { return CursorManager.GetFlag(CursorFlags.SelectionMenu); }
+            catch { return false; }
+        }
+
         private static bool IsMainMenuScene()
         {
+            // Fast negatives first — do not honor a stale "true" cache in-mission.
+            if (LocalRuntimeAircraftPresent() || SelectionMenuOpen())
+            {
+                _cachedIsMainMenu = false;
+                _nextMainMenuProbe = Time.unscaledTime + 2f;
+                return false;
+            }
+
             if (Time.unscaledTime < _nextMainMenuProbe)
                 return _cachedIsMainMenu;
-            _nextMainMenuProbe = Time.unscaledTime + (_cachedIsMainMenu ? 0.5f : 2f);
+            _nextMainMenuProbe = Time.unscaledTime + 2f;
             try
             {
                 if (_cachedMainMenu == null || !_cachedMainMenu)
@@ -373,21 +413,6 @@ namespace Oritasy
             float creditY = titleY + titleH + gap;
             GUI.Label(new Rect(titleX, titleY, titleSize.x + 8f, titleH), title, _splashStyle);
             GUI.Label(new Rect(creditX, creditY, creditSize.x + 12f, creditH), credit, _splashCreditStyle);
-
-            const string loading = "Loading Missile Config.......";
-            const string disclaimer = "(Bug might be a lot)";
-            float pad = PresentationLayoutService.BrandPad(UiScaleService.Height);
-            Vector2 loadSize = _splashLoadingStyle.CalcSize(new GUIContent(loading));
-            Vector2 discSize = _splashLoadingStyle.CalcSize(new GUIContent(disclaimer));
-            float loadH = PresentationLayoutService.CreditLineHeight(_splashLoadingStyle, loadSize.y);
-            float discH = PresentationLayoutService.CreditLineHeight(_splashLoadingStyle, discSize.y);
-            float lineGap = PresentationLayoutService.BrandLineGap(UiScaleService.Height);
-            float cornerH = loadH + lineGap + discH;
-            float baseY = UiScaleService.Height - pad - cornerH;
-            GUI.Label(new Rect(pad, baseY, loadSize.x + 16f, loadH),
-                loading, _splashLoadingStyle);
-            GUI.Label(new Rect(pad, baseY + loadH + lineGap, discSize.x + 16f, discH),
-                disclaimer, _splashLoadingStyle);
             GUI.depth = prevDepth;
         }
 
@@ -455,23 +480,27 @@ namespace Oritasy
                     : "• Standard edition (EN/ZH kill-tip language on Profile).\n")
                 + "• Dynamic music BETA: optional — enable in Oritasy Profile → Experimental.\n"
                 + "• Branding: aircraft XE / [Oritasy], ships NE / [Thanos], vehicles TE / [Unitas], buildings [Bexur].\n"
-                + "• First mission tip: press F3 for Beginner Assist (takeoff / land / crash guardian).\n"
+                + "• First mission tip: press F3 for the anti-crash system (takeoff / land / crash guardian).\n"
                 + "• Help chip (top-left) reopens this guide after the first dismiss.\n\n"
-                + "Oritasy merges aircraft / unit modifications, the WeXon weapon suite, and TGM-85 in one DLL.\n\n"
+                + "Oritasy is aircraft / unit / flight systems. Oritasy Hud is a separate plugin (chase / ILS / RWR / CCIP / MFD). The two do not call each other. TGM-85, ACM-119 / ACNM-118, and AAM-2CV come from VeyrnWeapons.\n"
+                + "• Main menu can check GitHub Releases (iallemege/Oritasy-System) and stage a small plugin zip. Apply after a full Steam quit.\n\n"
                 + "WHAT IT CHANGES\n"
                 + YellowLines()
-                + "• Extra weapons (including ACM-119 / ACNM-118 / AAM-2CV), multi-mode seekers, and strategic support options.\n"
+                + "• Chase / ILS / RWR / CCIP / MITL / radar MFD live in Oritasy Hud.dll (independent; idle on menus).\n"
+                + "• F8 engine schematic stays in Oritasy with the wear sim (Career Profile can turn wear off).\n"
+                + "• Multi-mode seekers, IAL nuke variants, F9 support, and career options stay in Oritasy.\n"
                 + "• Optional unrestricted weapon mounts (toggle in Career Profile).\n\n"
                 + "KEYBINDS (in flight)\n"
                 + "• F1 — Oritasy System: per-aircraft G-limits, speed, and FBW tuning.\n"
                 + "• F2 — Autopilot menu (straight / orbit / land + optional Missile evade TEST).\n"
-                + "• F3 — Beginner Assist: auto takeoff, crash guardian, terrain avoidance (land via F2).\n"
+                + "• F3 — Anti-crash system: auto takeoff, crash guardian, terrain avoidance (land via F2).\n"
                 + "• F4 — ILS Settings (glideslope 3–8°).\n"
                 + "• F5 — Private message + fund transfer (pick a player; Message / Transfer tabs).\n"
                 + "• F6 — Kill boost: mystery picks (hidden until chosen; reshuffled each open).\n"
                 + "• F7 — Host-only fund grant (any player, no deduct / no cap).\n"
-                + "• F8 — Engine Component Monitor (in-flight schematic). Main-menu F8 is Career Profile.\n"
-                + "• Insert — Manual missile (MITL); was F6.\n"
+                + "• F8 — Engine Component Monitor (in-flight schematic; optional — Career Profile can disable wear). Main-menu F8 is Career Profile.\n"
+                + "• O — Third-person airframe module overlay (F8 damage colors on the hull).\n"
+                + "• Insert — Manual missile / MITL (Oritasy core).\n"
                 + "• \\ — Missile-pilot HUD toggle (was F7/Home; Home kept free for Eject).\n"
                 + "• F9 — Support (buy/spawn salvos; match-only unlocks from kill streaks).\n"
                 + "• F10 — Aerial resupply + Repair Parts tab.  Backspace cancels resupply.\n"
@@ -487,22 +516,8 @@ namespace Oritasy
 
         private static void DrawHudBrand()
         {
-            if (Plugin.ShowHudBrand != null && !Plugin.ShowHudBrand.Value)
-                return;
-            // Paint-only chip — skip Layout/input events.
-            if (Event.current != null && Event.current.type != EventType.Repaint)
-                return;
-            // Local player in an XE airframe
-            if (!Plugin.IsUsableXeAircraft(Plugin.ResolveGuiAircraft()))
-                return;
-
-            EnsureStyles();
-            float w = 320f;
-            float h = 26f;
-            // Original top-center placement (pre-3000 offset)
-            float y = Plugin.HudBrandOffsetY != null ? Plugin.HudBrandOffsetY.Value : 8f;
-            Rect r = new Rect((UiScaleService.Width - w) * 0.5f, y, w, h);
-            GUI.Label(r, "Oritasy System", _hudStyle);
+            // Match watermark is the bottom-right Canvas label. Do not paint
+            // a second IMGUI chip / top-center brand.
         }
 
         /// <summary>
@@ -512,6 +527,10 @@ namespace Oritasy
         private static void DrawHelpChip()
         {
             if (!_helpChipEnabled)
+                return;
+            if (!IsMainMenuScene())
+                return;
+            if (InfantryModeService.Active)
                 return;
             EnsureStyles();
             float chipW = 168f;
@@ -554,6 +573,18 @@ namespace Oritasy
             GUI.Label(new Rect(chip.x + 8f, chip.y, chip.width - 12f, chip.height), line, _helpChipStyle);
             GUI.color = prev;
             GUI.depth = prevDepth;
+        }
+
+        /// <summary>
+        /// In-match bottom-right Canvas label (not the F1 tip chip).
+        /// </summary>
+        private static void DrawMatchWatermark()
+        {
+            bool show = !IsMainMenuScene() && !SplashActive && !InfantryModeService.Active
+                && !_welcomeOpen && !_changelogOpen
+                && (Plugin.ShowHudBrand == null || Plugin.ShowHudBrand.Value)
+                && Plugin.AllowThirdPersonUi;
+            WatermarkCanvas.SetVisible(show);
         }
 
         /// <summary>
@@ -637,7 +668,15 @@ namespace Oritasy
             GUI.EndScrollView();
 
             float bw = PresentationLayoutService.DialogButtonWidth(box.width);
-            if (GUI.Button(new Rect(box.x + (box.width - bw) * 0.5f, box.yMax - 48f, bw, 34f),
+            float by = box.yMax - 48f;
+            if (GUI.Button(new Rect(box.x + 20f, by, bw, 34f),
+                UiLang.T("GitHub", "GitHub"), _welcomeBtnStyle))
+            {
+                CloseChangelog();
+                GitHubUpdateService.PanelOpen = true;
+                GitHubUpdateService.BeginCheck(true);
+            }
+            if (GUI.Button(new Rect(box.x + box.width - 20f - bw, by, bw, 34f),
                 "CLOSE", _welcomeBtnStyle))
                 CloseChangelog();
 
@@ -651,25 +690,94 @@ namespace Oritasy
                 "Oritasy " + PluginInfo.DisplayRelease + "\n"
                 + "Latest three releases\n\n"
                 + YellowLines()
-                + "0.0.9.193C\n"
-                + "• Every aircraft has a low-alt and high-alt engine set on the F8 monitor.\n"
-                + "• Idle engines are gray with Not running. Starting the high-alt set shuts down the low-alt set.\n"
-                + "• Switching to high-alt engines flashes a HUD caution 5 times.\n"
-                + "• High-alt engines that are simply offline are no longer treated as damaged.\n"
-                + "• F8 layouts follow each airframe (AB-4 four-engine AB, tiltrotor combiner, helo gearbox, and so on).\n\n"
-                + "0.0.9.187C\n"
-                + "• Pilot health and per-plant engine wear (prop turbo/radiator, VTOL / STOVL / 4-engine).\n"
-                + "• In-flight F8 Engine Component Monitor: click parts to queue a 2s repair (no cap drop); Repair All is instant and lowers the cap.\n"
-                + "• Engine-part damage flashes a HUD caution 10 times.\n"
-                + "• F8 tip chip sits with the other corner hints; F9 chip width matches the stack.\n"
-                + "• F8 Engine Component Monitor can be toggled on Career Profile (main-menu F8 stays Profile).\n\n"
-                + "0.0.9.175C\n"
-                + "• Kill feed shows XP beside shot down / destroyed / sunk.\n"
-                + "• Combat XP: hit +1 (cap 25 per aircraft), module +25, missile +10, ground +4, navy +100, carrier +500.\n"
-                + "• High-skill AI climbs out after takeoff instead of beaming away at deck height.\n"
-                + "• Helicopter collective / thrust bar no longer sticks at 100% reverse.\n"
-                + "• F10 Repair All restores dead engines (nozzle thrust + prop / rotor condition).\n\n"
+                + "0.0.9.240C\n"
+                + "- Perf probe rewrite: Harmony timing sample, GC/alloc deltas, scene census, comparable perf_v2 reports (Subsystems / Harmony / GC-Alloc / Scene / Compare tabs).\n\n"
+                + "0.0.9.238C\n"
+                + "• Oritasy no longer stamps Veyrn / Pulsar missiles as [10kt] IAL clones. TGM-85, ACM-119, AAM-2CV, and AAM-250 keep their own names and yields.\n\n"
+                + "0.0.9.237C\n"
+                + "• Ejection seats fly out again on non-OA-27 aircraft. Two-seat first press launches the WSO seat (OA-27-style); single-seat and the second press use the vanilla sequence.\n\n"
+                + "0.0.9.235C\n"
+                + "• Official Blueprinter J 35 Draken (SaabJ35.nobp) is no longer treated as Icarus/Cube. Landing-gear sphere colliders and self-collision ignore no longer hit the hangar jet.\n"
+                + "• BIA Draken keeps vanilla fuel/throttle/speed/alt HUD (Trainer HUDExtras are rebound at spawn). Cube MagicTorque/Repulsorlift is stripped so elevons follow the stick.\n"
+                + "• Crash turns off the BIA MFD overlay. Overlay sits above the throttle/fuel cluster so those gauges stay visible.\n\n"
+                + "0.0.9.234C\n"
+                + "• Complete BIA airframes keep raycast landing gear (no Cube sphere collider, FixedUpdate is not skipped) and keep elevon visibleMesh on the visible child.\n\n"
+                + "0.0.9.232C\n"
+                + "• J 35 Draken BIA keeps vanilla HUD / sit; Icarus pad-snap no longer explodes the hangar preview.\n"
+                + "• In-match Oritasy watermark is a bottom-right Canvas label (not a tip chip).\n"
+                + "• Enemy-airfield defection no longer fires while taxiing at your own hangar. You must have flown this sortie, and capture-range overlap of a distant enemy field is ignored.\n\n"
+                + "0.0.9.231C\n"
+                + "• WSO: every 20s dumps hostile missiles inside 10 km. Gun pipper uses extra lead iterations while the WSO is aboard.\n"
+                + "• Two-seat eject (not OA-27C / MiG-15S): first press punches the WSO and canopy; second press ejects you.\n"
+                + "• OA-27D (BDF hangar only, no suicide kit, second eject is a real bail-out) ships with OA27C.dll.\n\n"
+                + "0.0.9.214E\n"
+                + "• WSO will not steal your selected countermeasure. Flares require Y/N, and the selected station stays put.\n"
+                + "• Opposing AI fires AAMs at missiles the local player launched (not AI-vs-AI shots). Toggle: config AiBrain.InterceptPlayerMissiles.\n"
+                + "• Large missions: aircraft identity is cached so Oritasy no longer scans every script on every airframe every physics tick. Reload, weapon swap, and other gameplay animations are unchanged.\n"
+                + "• Infantry pads spawn for the airbase you are standing on (not the whole map while flying).\n\n"
                 + "Tip: press F1 for Oritasy System; Help | Guide (top-left) for the full keybind overview.";
+        }
+    }
+
+    /// <summary>Screen-space Canvas watermark, bottom-right, no chip chrome.</summary>
+    internal static class WatermarkCanvas
+    {
+        private static Canvas _canvas;
+        private static Text _label;
+        private static bool _visible;
+
+        internal static void SetVisible(bool show)
+        {
+            _visible = show;
+            if (!show)
+            {
+                if (_canvas != null)
+                    _canvas.gameObject.SetActive(false);
+                return;
+            }
+            Ensure();
+            if (_canvas != null)
+                _canvas.gameObject.SetActive(true);
+        }
+
+        private static void Ensure()
+        {
+            if (_canvas != null)
+                return;
+            GameObject root = new GameObject("OritasyWatermark");
+            UnityEngine.Object.DontDestroyOnLoad(root);
+            _canvas = root.AddComponent<Canvas>();
+            _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            _canvas.sortingOrder = 5000;
+            CanvasScaler scaler = root.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.matchWidthOrHeight = 1f;
+
+            GameObject go = new GameObject("Label");
+            go.transform.SetParent(root.transform, false);
+            _label = go.AddComponent<Text>();
+            _label.raycastTarget = false;
+            _label.text = "Oritasy";
+            _label.fontSize = 18;
+            _label.fontStyle = FontStyle.Bold;
+            _label.alignment = TextAnchor.LowerRight;
+            _label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            _label.verticalOverflow = VerticalWrapMode.Overflow;
+            _label.color = new Color(0.15f, 1f, 0.35f, 0.82f);
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (font == null)
+                font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            if (font == null)
+                font = Font.CreateDynamicFontFromOSFont(new string[] { "Segoe UI", "Arial", "Microsoft YaHei" }, 18);
+            if (font != null)
+                _label.font = font;
+            RectTransform rt = _label.rectTransform;
+            rt.anchorMin = new Vector2(1f, 0f);
+            rt.anchorMax = new Vector2(1f, 0f);
+            rt.pivot = new Vector2(1f, 0f);
+            rt.sizeDelta = new Vector2(280f, 28f);
+            rt.anchoredPosition = new Vector2(-18f, 14f);
         }
     }
 }

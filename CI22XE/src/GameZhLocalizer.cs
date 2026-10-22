@@ -27,6 +27,7 @@ namespace Oritasy
         private static int _deferPhase;
         private static float _deferAt;
         private static int _encNotifyFrame = -1;
+        private static bool _encSkippedNoCjk;
         private static readonly Dictionary<string, string> Map = new Dictionary<string, string>(StringComparer.Ordinal);
         private static readonly Dictionary<int, string> OriginalById = new Dictionary<int, string>();
         private static readonly HashSet<int> Touched = new HashSet<int>();
@@ -104,6 +105,11 @@ namespace Oritasy
                 OnLanguageChanged();
 
             PumpDeferredZh(Time.unscaledTime);
+            if (zh && _encSkippedNoCjk && ChineseTmpFontService.CanPaintCjk)
+            {
+                _encSkippedNoCjk = false;
+                ScheduleDeferredZh(0.25f, true);
+            }
         }
 
         /// <summary>
@@ -481,6 +487,14 @@ namespace Oritasy
             Add("AMMO", "弹药");
             Add("Ammo", "弹药");
             Add("Munitions", "弹药");
+            Add("G Factor Bomb", "G Factor Bomb");
+            Add("G Factor Container", "G Factor Bomb");
+            Add("Ammo Dump [50T]", "G Factor Bomb");
+            Add("Ammo Dump", "弹药箱");
+            Add("High-density concentrated G-element (G Factor) bomb.",
+                "高密度浓缩G元素（G Factor）炸弹");
+            Add("High-density concentrated G-element (G Factor) container.",
+                "高密度浓缩G元素（G Factor）炸弹");
             Add("FUNDS", "资金");
             Add("Funds", "资金");
             Add("ARMOR", "装甲");
@@ -1618,6 +1632,8 @@ namespace Oritasy
             ResolveTmp();
             if (_tmpType == null || _tmpTextProp == null)
                 return;
+            if (UiLang.IsChinese && !ChineseTmpFontService.CanPaintCjk)
+                return;
             ChineseTmpFontService.EnsureReady();
             UnityEngine.Object[] objs;
             try { objs = UnityEngine.Object.FindObjectsOfType(_tmpType); }
@@ -1693,6 +1709,11 @@ namespace Oritasy
         private static void ApplyEncyclopediaDefs(bool zh)
         {
             EnsureDict();
+            if (zh && !ChineseTmpFontService.CanPaintCjk)
+            {
+                _encSkippedNoCjk = true;
+                zh = false;
+            }
             if (!zh)
             {
                 RestoreEncyclopediaDefs();
@@ -1747,7 +1768,11 @@ namespace Oritasy
                     snap.Code = brand.Code;
                     snap.Description = brand.DescEn;
                     EncSnapshots[id] = snap;
-                    UnitBrandingService.ApplyBrandFields(ad, brand);
+                    AircraftDefinition live = XeFleetCloneService.ResolveLive(ad);
+                    if (!XeFleetCloneService.IsClone(live))
+                        live = XeFleetCloneService.EnsureClone(ad, Plugin.GetEncyclopedia());
+                    if (XeFleetCloneService.IsClone(live))
+                        UnitBrandingService.ApplyBrandFields(live, brand);
                     if (!string.IsNullOrEmpty(snap.BogeyName))
                     {
                         string t = TranslateLookup(snap.BogeyName.Trim());

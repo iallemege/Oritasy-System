@@ -1,10 +1,12 @@
 using System;
+using BepInEx.Configuration;
+using NuclearOption.Networking;
 using UnityEngine;
 
 namespace Oritasy
 {
     /// <summary>
-    /// Hidden main-menu developer panel.
+    /// Hidden developer panel (main menu and in-match).
     /// Sequence: Up Up Down Down Left Left Right Right A A B B
     /// </summary>
     internal static class OritasyDevMenu
@@ -17,9 +19,6 @@ namespace Oritasy
         private static float _lastStepAt = -10f;
         private static Vector2 _scroll;
         private static string _note = "";
-        private static MainMenu _cachedMainMenu;
-        private static float _nextMenuProbe;
-        private static bool _cachedIsMainMenu;
         private static bool _cursorHeld;
         private static GUIStyle _title;
         private static GUIStyle _body;
@@ -33,13 +32,20 @@ namespace Oritasy
 
         internal static void Tick()
         {
-            if (!IsMainMenu())
+            try
             {
-                _progress = 0;
-                if (_open)
-                    Close();
-                return;
+                if (JoinMenuFactionFix.SelectionUiOpen())
+                {
+                    _progress = 0;
+                    if (_open)
+                        Close();
+                    return;
+                }
             }
+            catch { }
+
+            if (JammerQte.IsActive || DirjamBridge.IsActive)
+                return;
 
             if (_open && Input.GetKeyDown(KeyCode.Escape))
             {
@@ -78,11 +84,15 @@ namespace Oritasy
         {
             if (!_open)
                 return;
-            if (!IsMainMenu())
+            try
             {
-                Close();
-                return;
+                if (JoinMenuFactionFix.SelectionUiOpen())
+                {
+                    Close();
+                    return;
+                }
             }
+            catch { }
 
             HoldCursor();
             EnsureStyles();
@@ -94,8 +104,8 @@ namespace Oritasy
                 Texture2D.whiteTexture);
             GUI.color = prev;
 
-            float w = Mathf.Min(620f, UiScaleService.Width - 40f);
-            float h = Mathf.Min(560f, UiScaleService.Height - 40f);
+            float w = Mathf.Min(640f, UiScaleService.Width - 40f);
+            float h = Mathf.Min(640f, UiScaleService.Height - 40f);
             Rect box = new Rect((UiScaleService.Width - w) * 0.5f, (UiScaleService.Height - h) * 0.5f, w, h);
 
             GUI.color = new Color(0.05f, 0.07f, 0.08f, 0.96f);
@@ -106,7 +116,7 @@ namespace Oritasy
 
             GUILayout.BeginArea(new Rect(box.x + 16f, box.y + 12f, box.width - 32f, box.height - 24f));
             GUILayout.Label(zh ? "Oritasy 开发者入口" : "Oritasy Developer", _title);
-            GUILayout.Label(zh ? "仅主菜单 · Esc 关闭" : "Main menu only · Esc closes", _body);
+            GUILayout.Label(zh ? "主菜单与局内 · Esc 关闭" : "Main menu and match · Esc closes", _body);
 
             _scroll = GUILayout.BeginScrollView(_scroll);
 
@@ -116,6 +126,8 @@ namespace Oritasy
             DrawPremium(zh);
             GUILayout.Space(10f);
 #endif
+            DrawMatch(zh);
+            GUILayout.Space(10f);
             DrawToggles(zh);
 
             if (!string.IsNullOrEmpty(_note))
@@ -129,6 +141,160 @@ namespace Oritasy
             if (GUILayout.Button(zh ? "关闭" : "Close", _btn, GUILayout.Height(32f)))
                 Close();
             GUILayout.EndArea();
+        }
+
+        private static void DrawMatch(bool zh)
+        {
+            GUILayout.Label(zh ? "局内数据" : "Match data", _title);
+            Player player = LocalPlayer();
+            Aircraft ac = LocalAircraft();
+            float funds = -1f;
+            if (player != null)
+            {
+                try { funds = player.Allocation; }
+                catch { funds = -1f; }
+            }
+            if (player == null && ac == null)
+            {
+                GUILayout.Label(zh ? "当前不在对局里。" : "Not in a match.", _body);
+                return;
+            }
+
+            if (player != null)
+            {
+                GUILayout.Label(zh
+                    ? ("资金 " + (funds >= 0f ? funds.ToString("0.0") + "M" : "?"))
+                    : ("Allocation " + (funds >= 0f ? funds.ToString("0.0") + "M" : "?")), _body);
+                if (!IsLocalHost())
+                    GUILayout.Label(zh
+                        ? "资金在主机上最稳，客户端可能改不了。"
+                        : "Funds stick most reliably on the host.", _body);
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("+10M", _btn, GUILayout.Height(26f)))
+                    AddFunds(10f, zh);
+                if (GUILayout.Button("+50M", _btn, GUILayout.Height(26f)))
+                    AddFunds(50f, zh);
+                if (GUILayout.Button("+100M", _btn, GUILayout.Height(26f)))
+                    AddFunds(100f, zh);
+                if (GUILayout.Button("+500M", _btn, GUILayout.Height(26f)))
+                    AddFunds(500f, zh);
+                GUILayout.EndHorizontal();
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button(zh ? "资金清零" : "Funds = 0", _btn, GUILayout.Height(26f)))
+                    SetFunds(0f, zh);
+                if (GUILayout.Button(zh ? "资金 9999M" : "Funds 9999M", _btn, GUILayout.Height(26f)))
+                    SetFunds(9999f, zh);
+                GUILayout.EndHorizontal();
+            }
+
+            if (ac == null)
+            {
+                GUILayout.Label(zh ? "没有本机飞机。" : "No local aircraft.", _body);
+                return;
+            }
+
+            float fuel = -1f;
+            try { fuel = ac.fuelLevel; }
+            catch { }
+            GUILayout.Label(zh
+                ? ("本机燃油 " + (fuel >= 0f ? (fuel * 100f).ToString("0") + "%" : "?"))
+                : ("Local fuel " + (fuel >= 0f ? (fuel * 100f).ToString("0") + "%" : "?")), _body);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(zh ? "加满燃油" : "Fill fuel", _btn, GUILayout.Height(26f)))
+            {
+                try { AerialResupply.FillFuelFromOutside(ac); }
+                catch { }
+                _note = zh ? "已加满燃油" : "Fuel filled";
+            }
+            if (GUILayout.Button(zh ? "加满电量" : "Fill battery", _btn, GUILayout.Height(26f)))
+            {
+                try { AerialResupply.FillBatteryFromOutside(ac); }
+                catch { }
+                _note = zh ? "已加满电量" : "Battery filled";
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(zh ? "全部修理" : "Repair all", _btn, GUILayout.Height(26f)))
+            {
+                int n = 0;
+                try { n = ComponentRepair.RepairAllFromOutside(ac); }
+                catch { }
+                try { AirframeWearService.RepairPilot(); }
+                catch { }
+                _note = zh ? ("已修理 " + n + " 项") : ("Repaired " + n);
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        private static bool IsLocalHost()
+        {
+            try
+            {
+                NetworkManagerNuclearOption nm = NetworkManagerNuclearOption.i;
+                return nm != null && nm.Server != null && nm.Server.Active;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void AddFunds(float amount, bool zh)
+        {
+            Player p = LocalPlayer();
+            if (p == null)
+            {
+                _note = zh ? "没有本地玩家" : "No local player";
+                return;
+            }
+            try { p.AddAllocation(amount); }
+            catch { }
+            _note = zh ? ("资金 +" + amount.ToString("0") + "M") : ("Allocation +" + amount.ToString("0") + "M");
+        }
+
+        private static void SetFunds(float amount, bool zh)
+        {
+            Player p = LocalPlayer();
+            if (p == null)
+            {
+                _note = zh ? "没有本地玩家" : "No local player";
+                return;
+            }
+            try { p.SetAllocation(amount); }
+            catch
+            {
+                try
+                {
+                    float have = p.Allocation;
+                    p.AddAllocation(amount - have);
+                }
+                catch { }
+            }
+            _note = zh ? ("资金设为 " + amount.ToString("0") + "M") : ("Allocation set to " + amount.ToString("0") + "M");
+        }
+
+        private static Player LocalPlayer()
+        {
+            try
+            {
+                Player p;
+                if (GameManager.GetLocalPlayer(out p) && p != null)
+                    return p;
+            }
+            catch { }
+            return null;
+        }
+
+        private static Aircraft LocalAircraft()
+        {
+            try
+            {
+                Aircraft ac;
+                if (GameManager.GetLocalAircraft(out ac) && ac != null && Plugin.IsRuntimeInstance(ac))
+                    return ac;
+            }
+            catch { }
+            return null;
         }
 
 #if ORITASY_COMBINED
@@ -224,6 +390,7 @@ namespace Oritasy
             ToggleRow(zh ? "无限制挂载" : "Unrestricted mounts", Plugin.UnrestrictedWeapons);
             ToggleRow(zh ? "调试日志" : "Debug log", Plugin.DebugLog);
             ToggleRow(zh ? "第三人称 UI" : "Third-person UI", Plugin.ShowThirdPersonUi);
+            ToggleRow(zh ? "杆量显示" : "Stick display", HudPackState.StickDisplayEntry());
             ToggleRow(zh ? "启动闪屏" : "Boot splash", Plugin.BootSplash);
             ToggleRow(zh ? "HUD 品牌" : "HUD brand", Plugin.ShowHudBrand);
         }
@@ -265,6 +432,30 @@ namespace Oritasy
 
         private static void Open()
         {
+            try
+            {
+                if (AircraftManeuverGui.IsOpen)
+                    AircraftManeuverGui.Close();
+                if (PlayerAutopilot.MenuOpen)
+                    PlayerAutopilot.CloseMenuFromOutside();
+                if (AerialResupply.MenuOpen)
+                    AerialResupply.CloseMenuFromOutside();
+                if (HudPackState.LayoutMenuOpen)
+                    HudPackState.CloseRwr();
+                if (BeginnerAssist.MenuOpen)
+                    BeginnerAssist.CloseMenuFromOutside();
+                if (IlsSettingsMenu.MenuOpen)
+                    IlsSettingsMenu.CloseMenuFromOutside();
+                if (PrivateMessageMenu.MenuOpen)
+                    PrivateMessageMenu.CloseMenuFromOutside();
+                if (KillChoiceMenu.MenuOpen)
+                    KillChoiceMenu.CloseMenuFromOutside();
+                if (HostFundMenu.MenuOpen)
+                    HostFundMenu.CloseMenuFromOutside();
+                HudPackState.CloseWear();
+                PlayerAutopilot.CloseWeXonSupportMenu();
+            }
+            catch { }
             _open = true;
             _note = "";
             _scroll = Vector2.zero;
@@ -294,27 +485,6 @@ namespace Oritasy
                 return;
             OritasyCursor.Release();
             _cursorHeld = false;
-        }
-
-        private static bool IsMainMenu()
-        {
-            if (JoinMenuFactionFix.SelectionUiOpen())
-                return false;
-            if (Time.unscaledTime < _nextMenuProbe)
-                return _cachedIsMainMenu;
-            _nextMenuProbe = Time.unscaledTime + (_cachedIsMainMenu ? 0.4f : 1.5f);
-            try
-            {
-                if (_cachedMainMenu == null || !_cachedMainMenu)
-                    _cachedMainMenu = UnityEngine.Object.FindObjectOfType<MainMenu>();
-                _cachedIsMainMenu = _cachedMainMenu != null && _cachedMainMenu.isActiveAndEnabled;
-            }
-            catch
-            {
-                _cachedMainMenu = null;
-                _cachedIsMainMenu = false;
-            }
-            return _cachedIsMainMenu;
         }
 
         private static void EnsureStyles()

@@ -25,8 +25,7 @@ namespace Oritasy
         /// <summary>Show defectable-airfield marker with gear up or down.</summary>
         private const float DisplayRangeM = 15000f;
 
-        private static readonly MethodInfo UnitSetHq =
-            AccessTools.Method(typeof(Unit), "SetHQ", new Type[] { typeof(FactionHQ) });
+        private static readonly MethodInfo UnitSetHq = null;
         private static readonly PropertyInfo UnitNetworkHq =
             AccessTools.Property(typeof(Unit), "NetworkHQ");
         private static readonly MethodInfo ServerApplyFaction =
@@ -61,11 +60,16 @@ namespace Oritasy
         private static float _landRadiusM;
         private static bool _gearDown;
         private static bool _holdActive;
+        internal static bool HoldFireActive { get { return _holdActive; } }
+        private static Airbase[] _airbasesScanCache;
+        private static float _airbasesScanUntil;
         private static bool _showMarker;
         private static bool _insideFriendly;
         private static bool _nearEnemy;
         private static bool _landedInside;
         private static bool _defectedThisSit;
+        private static bool _flownThisSit;
+        private static int _sortieAcId;
         private static bool _hostBlocked;
         private static string _hudSuccessName = "";
         private static FactionHQ _betrayedHq;
@@ -87,7 +91,7 @@ namespace Oritasy
             _holdFire = config.Bind("AirportDefection", "HoldFireOnGearDown", true,
                 "With landing gear down, enemies of that airfield within 6 km of you will not fire.");
             _defectOnLand = config.Bind("AirportDefection", "DefectOnLanding", true,
-                "Landing at that enemy airport defects you to their faction (host/listen-server).");
+                "Landing at that enemy airport defects you to their faction (host/listen-server). Hangar taxi at your own field never counts — you must have flown this sortie first.");
         }
 
         internal static void Tick()
@@ -99,17 +103,26 @@ namespace Oritasy
                 return;
             }
 
-            Aircraft ac = null;
-            try { GameManager.GetLocalAircraft(out ac); }
-            catch { }
+            Aircraft ac = AircraftIdentity.CachedLocal();
             if (ac == null)
             {
                 ClearScan();
                 _defectedThisSit = false;
+                _flownThisSit = false;
+                _sortieAcId = 0;
                 _hudSuccessName = "";
                 _hostBlocked = false;
                 ClearBetrayalMemory();
                 return;
+            }
+            int acId = ac.GetInstanceID();
+            if (acId != _sortieAcId)
+            {
+                _sortieAcId = acId;
+                _flownThisSit = false;
+                _defectedThisSit = false;
+                _hostBlocked = false;
+                _hudSuccessName = "";
             }
             if (LocalPilotUnavailable(ac))
             {
@@ -130,17 +143,22 @@ namespace Oritasy
                 catch { }
             }
 
-            if (!landed)
+            float ralt = 0f;
+            float spd = 0f;
+            try { ralt = ac.radarAlt; }
+            catch { }
+            try { spd = ac.speed; }
+            catch { }
+            if (ralt > 80f && spd > 40f)
+                _flownThisSit = true;
+            else if (!_gearDown && ralt > 40f && spd > 30f)
+                _flownThisSit = true;
+
+            if (!landed && ralt > 25f)
             {
-                float ralt = 0f;
-                try { ralt = ac.radarAlt; }
-                catch { }
-                if (ralt > 25f)
-                {
-                    _defectedThisSit = false;
-                    _hudSuccessName = "";
-                    _hostBlocked = false;
-                }
+                _defectedThisSit = false;
+                _hudSuccessName = "";
+                _hostBlocked = false;
             }
 
             if (Time.unscaledTime >= _nextScan || _enemyBase == null)
@@ -164,8 +182,12 @@ namespace Oritasy
             _nearEnemy = !_insideFriendly && horiz <= HoldFireRangeM;
             _holdActive = (_holdFire == null || _holdFire.Value)
                 && _gearDown && _nearEnemy;
-            _landedInside = landed && horiz <= _landRadiusM;
-            if (_landedInside && _gearDown)
+            _landedInside = _flownThisSit
+                && !_insideFriendly
+                && landed
+                && _gearDown
+                && horiz <= _landRadiusM;
+            if (_landedInside)
                 TryDefect(ac);
         }
 
@@ -282,6 +304,8 @@ namespace Oritasy
                 return;
             if (_defectedThisSit || ac == null || _enemyHq == null)
                 return;
+            if (!_flownThisSit || _insideFriendly)
+                return;
 
             Player player = null;
             try { GameManager.GetLocalPlayer(out player); }
@@ -298,6 +322,8 @@ namespace Oritasy
                 catch { }
             }
             if (oldHq == null || SameFactionHq(oldHq, _enemyHq))
+                return;
+            if (SittingOnOwnField(ac, oldHq))
                 return;
 
             bool host = false;
@@ -804,6 +830,48 @@ namespace Oritasy
             return false;
         }
 
+        private static bool SittingOnOwnField(Aircraft ac, FactionHQ hq)
+        {
+            if (ac == null || ac.transform == null)
+                return false;
+            Vector3 pos = ac.transform.position;
+            if (HqOwnsThisPad(hq, pos))
+                return true;
+            FactionHQ acHq = null;
+            try { acHq = ac.NetworkHQ; }
+            catch { }
+            if (acHq != null && !object.ReferenceEquals(acHq, hq) && HqOwnsThisPad(acHq, pos))
+                return true;
+            try
+            {
+                Player p;
+                GameManager.GetLocalPlayer(out p);
+                if (p != null)
+                {
+                    FactionHQ ph = p.HQ;
+                    if (ph != null
+                        && !object.ReferenceEquals(ph, hq)
+                        && !object.ReferenceEquals(ph, acHq)
+                        && HqOwnsThisPad(ph, pos))
+                        return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private static bool HqOwnsThisPad(FactionHQ hq, Vector3 pos)
+        {
+            if (hq == null)
+                return false;
+            try
+            {
+                Airbase dummy;
+                return hq.AnyNearAirbase(pos, out dummy);
+            }
+            catch { return false; }
+        }
+
         private static void RefreshNearestEnemy(Aircraft ac)
         {
             _enemyBase = null;
@@ -811,7 +879,16 @@ namespace Oritasy
             _insideFriendly = false;
             _landRadiusM = 800f;
             FactionHQ myHq = null;
+            FactionHQ plyHq = null;
             try { myHq = ac.NetworkHQ; }
+            catch { }
+            try
+            {
+                Player p;
+                GameManager.GetLocalPlayer(out p);
+                if (p != null)
+                    plyHq = p.HQ;
+            }
             catch { }
             if (myHq == null)
             {
@@ -819,19 +896,19 @@ namespace Oritasy
                 catch { }
             }
             if (myHq == null)
-            {
-                try
-                {
-                    Player p;
-                    GameManager.GetLocalPlayer(out p);
-                    if (p != null)
-                        myHq = p.HQ;
-                }
-                catch { }
-            }
+                myHq = plyHq;
 
             Airbase[] all = null;
-            try { all = UnityEngine.Object.FindObjectsOfType<Airbase>(); }
+            try {
+                    if (_airbasesScanCache != null && Time.unscaledTime < _airbasesScanUntil)
+                        all = _airbasesScanCache;
+                    else
+                    {
+                        all = UnityEngine.Object.FindObjectsOfType<Airbase>();
+                        _airbasesScanCache = all;
+                        _airbasesScanUntil = Time.unscaledTime + 1.0f;
+                    }
+                }
             catch { }
             if (all == null)
                 return;
@@ -865,7 +942,8 @@ namespace Oritasy
                     continue;
                 Vector3 c = CenterOf(ab);
                 float d = Horizontal(from, c);
-                if (myHq != null && SameFactionHq(hq, myHq))
+                if ((myHq != null && SameFactionHq(hq, myHq))
+                    || (plyHq != null && SameFactionHq(hq, plyHq)))
                 {
                     float landR = ResolveLandRadius(ab);
                     if (landR < 800f)
@@ -884,7 +962,23 @@ namespace Oritasy
             }
             _enemyBase = pick;
             if (pick != null)
-                _landRadiusM = ResolveLandRadius(pick);
+                _landRadiusM = ResolveDefectRadius(pick);
+        }
+
+        /// <summary>
+        /// CaptureRange can be 8 km and overlap the home field. Defect only
+        /// counts sitting on that enemy airfield, not inside its capture bubble.
+        /// </summary>
+        private static float ResolveDefectRadius(Airbase ab)
+        {
+            float r = 0f;
+            try { r = ab.GetRadius(); }
+            catch { }
+            if (r < 400f)
+                r = 400f;
+            if (r > 1800f)
+                r = 1800f;
+            return r;
         }
 
         private static float ResolveLandRadius(Airbase ab)
@@ -1118,6 +1212,8 @@ namespace Oritasy
 
         private static void Postfix(AIPilotCombatModes __instance)
         {
+            if (!AirportDefection.HoldFireActive)
+                return;
             AirportDefection.ClearHeldCombatTarget(__instance, AircraftField, TargetField);
         }
     }
@@ -1132,6 +1228,8 @@ namespace Oritasy
 
         private static void Postfix(AIHeloCombatState __instance)
         {
+            if (!AirportDefection.HoldFireActive)
+                return;
             AirportDefection.ClearHeldCombatTarget(__instance, AircraftField, TargetField);
         }
     }

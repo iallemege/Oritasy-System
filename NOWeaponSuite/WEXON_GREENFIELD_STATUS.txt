@@ -1,0 +1,11 @@
+WeXon / CI22XE status (0.0.9.109) — CPU-first performance
+
+109C (asm 2.7.47) + Kh85MT 1.8.24:
+- AllowSlot always staggers (Med no longer every-frame HUD/polish)
+- PerfProbe Sampling default OFF (no Stopwatch on Update)
+- HUD 1/3, polish 1/5; critical ticks split across frames
+- Optical MultiModeBrain OFF by default (EnableOpticalAssist)
+- Seek IFF: 1 Hz gate before classify; ARH OK id cache
+- Kh85 ManualActive frame-cached; NonKh85 on Guidance FU
+- WeXon Update always staggered; Measure only when sampling
+- Chinese Text scan 12–20s; OnEnable budget cut

@@ -114,7 +114,7 @@ namespace WeXon
             if (PlayerPrefs.HasKey(PrefKey))
                 _chinese = PlayerPrefs.GetInt(PrefKey, 0) != 0;
             else
-                _chinese = DetectSystemChinese();
+                _chinese = false;
         }
 
         internal static void SetChinese(bool chinese)
@@ -201,18 +201,6 @@ namespace WeXon
                     _englishOnlyEdition = (bool)f.GetValue(null);
             }
             catch { }
-        }
-
-        private static bool DetectSystemChinese()
-        {
-            try
-            {
-                SystemLanguage lang = Application.systemLanguage;
-                return lang == SystemLanguage.Chinese
-                    || lang == SystemLanguage.ChineseSimplified
-                    || lang == SystemLanguage.ChineseTraditional;
-            }
-            catch { return false; }
         }
     }
 }

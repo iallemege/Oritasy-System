@@ -23,6 +23,7 @@ namespace Oritasy
         private static ConfigEntry<int> _level;
         private static ConfigEntry<bool> _opposingOnly;
         private static ConfigEntry<bool> _affectHelo;
+        private static ConfigEntry<bool> _interceptPlayerMissiles;
 
         private static FieldInfo _aircraftField;
         private static bool _fieldsResolved;
@@ -172,6 +173,8 @@ namespace Oritasy
                 "If true, only rewrite AI opposing the local player's faction.");
             _affectHelo = config.Bind("AiBrain", "AffectHelo", true,
                 "Also replace helicopter combat AI.");
+            _interceptPlayerMissiles = config.Bind("AiBrain", "InterceptPlayerMissiles", true,
+                "Opposing AI fires AAMs at missiles the local player launched (not AI missiles).");
 
             bool en = _enabled.Value;
             try
@@ -190,7 +193,16 @@ namespace Oritasy
 
         internal static bool IsEnabled()
         {
-            return _enabled != null && _enabled.Value;
+            if (_enabled == null)
+                return true;
+            return _enabled.Value;
+        }
+
+        internal static bool InterceptPlayerMissilesOn()
+        {
+            if (_interceptPlayerMissiles == null)
+                return true;
+            return _interceptPlayerMissiles.Value;
         }
 
         internal static void SetEnabled(bool on)
@@ -383,6 +395,7 @@ namespace Oritasy
                 if (wantHelo != helo)
                     _affectHelo.Value = wantHelo;
             }
+            AiCombatNnService.DrawProfileToggle();
         }
 
         private static void DrawLevelButton(int level, int current)
@@ -470,6 +483,7 @@ namespace Oritasy
 
         internal static bool ShouldTakeover(Pilot pilot, Aircraft ac)
         {
+                /* 258C: takeover stays on (no LowEnd disable) */
             if (!IsEnabled())
                 return false;
             if (pilot == null || ac == null)
@@ -546,9 +560,7 @@ namespace Oritasy
             }
             catch { }
 
-            Aircraft local = null;
-            try { GameManager.GetLocalAircraft(out local); }
-            catch { }
+            Aircraft local = AircraftIdentity.CachedLocal();
 
             float nearestAir = 99999f;
             bool canHuntAir = a2a || gun;
@@ -679,6 +691,18 @@ namespace Oritasy
                 catch { }
             }
 
+            if (InterceptPlayerMissilesOn() && a2a)
+            {
+                Unit intercept;
+                float interceptScore;
+                if (AiMissileInterceptService.TryPick(ac, out intercept, out interceptScore)
+                    && intercept != null && interceptScore > bestScore)
+                {
+                    best = intercept;
+                    bestScore = interceptScore;
+                }
+            }
+
             s.Target = best;
             if (best != prev)
             {
@@ -699,7 +723,8 @@ namespace Oritasy
             isMissile = false;
             if (ac == null || ac.weaponStations == null || tgt == null)
                 return null;
-            bool wantAir = tgt is Aircraft;
+            bool wantAir = tgt is Aircraft || tgt is Missile;
+            bool missileTgt = tgt is Missile;
             WeaponStation bestMis = null;
             WeaponStation bestGun = null;
             WeaponStation bestAg = null;
@@ -733,6 +758,16 @@ namespace Oritasy
                     if (bestAg == null || w.bomb || w.glideBomb)
                         bestAg = st;
                 }
+            }
+
+            if (missileTgt)
+            {
+                if (bestMis != null)
+                {
+                    isMissile = true;
+                    return bestMis;
+                }
+                return null;
             }
 
             if (wantAir)
@@ -785,6 +820,8 @@ namespace Oritasy
                     interval = st.WeaponInfo.fireInterval;
             }
             catch { }
+            if (tgt is Missile && interval < 1.05f)
+                interval = 1.05f;
             s.NextFireAt = AiCombatEngagementService.ScheduleNextFireAt(now, interval, t.FireDelay);
 
             try
@@ -809,6 +846,8 @@ namespace Oritasy
                 }
                 else
                 {
+                    if (tgt is Missile)
+                        AiMissileInterceptService.NotePending(ac, tgt);
                     st.Fire(ac, tgt);
                 }
             }
@@ -1161,6 +1200,13 @@ namespace Oritasy
 
             AiCombatAcmPickService.Script pick = AiCombatAcmPickService.Pick(
                 dist, angle, aspect, mySpd, tgtSpd, corner, ralt, t.BreakDist, t.Skill, dAlt);
+            if (AiCombatNnService.IsLive())
+            {
+                bool shouldBreak = AiCombatEngagementService.ShouldBreakOff(dist, angle, t.BreakDist);
+                pick = AiCombatNnService.BlendAcm(
+                    pick, dist, angle, aspect, mySpd, tgtSpd, corner, ralt, dAlt,
+                    t.Skill, t.AcmChance, false, shouldBreak, t.BreakDist, Rng.NextDouble());
+            }
             if (pick == AiCombatAcmPickService.Script.None)
                 return;
 
@@ -1267,6 +1313,125 @@ namespace Oritasy
             catch { return false; }
         }
 
+        private static void DriveBreakOff(
+            Aircraft ac, BrainState s, Tier t, ControlInputs inputs, bool helo,
+            Vector3 myPos, Vector3 toTgt, float now)
+        {
+            s.Mode = Mode.BreakOff;
+            if (helo)
+            {
+                Vector3 sideH = FlatSide(ac.transform.forward, s.ManeuverSide != 0f ? s.ManeuverSide : 1f);
+                Vector3 awayH = myPos + ac.transform.forward * 1800f + sideH * 900f;
+                AutoAim(ac, awayH, AiCombatEvadeService.ResolveHeloCruiseAgl(ac), t.Effort, Vector3.zero, true,
+                    AutopilotAim.BreakBank);
+                if (inputs != null)
+                    inputs.throttle = 0.85f;
+                return;
+            }
+            Vector3 away;
+            if (AiCombatEngagementService.BreakOffDivePhase(s.BreakUntil, now))
+            {
+                away = myPos + ac.transform.forward * 2200f
+                    + FlatSide(ac.transform.forward, s.ManeuverSide != 0f ? s.ManeuverSide : 1f) * 800f
+                    - Vector3.up * 280f;
+                AutoAim(ac, away, Mathf.Max(140f, SafeRalt(ac) * 0.5f), t.Effort, Vector3.zero, true,
+                    AutopilotAim.BreakBank);
+            }
+            else
+            {
+                away = myPos + Vector3.up * 1200f - toTgt.normalized * 800f;
+                AutoAim(ac, away, SafeRalt(ac) + 500f, t.Effort, Vector3.zero, true,
+                    AutopilotAim.BreakBank);
+            }
+            if (inputs != null)
+                inputs.throttle = 1f;
+        }
+
+        /// <summary>
+        /// Neural allocator owns Mode + ACM when live. Returns false = caller uses the rule FSM.
+        /// </summary>
+        private static bool TryNnFight(
+            Aircraft ac, Unit tgt, BrainState s, Tier t, ControlInputs inputs, bool helo,
+            float dist, float angle, float now, Vector3 myPos, Vector3 toTgt,
+            bool canShoot,
+            out bool handled, out bool forceHunt, out bool forceAttack)
+        {
+            handled = false;
+            forceHunt = false;
+            forceAttack = false;
+            if (helo || !(tgt is Aircraft) || !AiCombatNnService.IsLive())
+                return false;
+
+            float mySpd = Mathf.Max(1f, ac.speed);
+            float tgtSpd = Mathf.Max(1f, TargetVel(tgt).magnitude);
+            float corner = ResolveCorner(ac, s);
+            float ralt = SafeRalt(ac);
+            float dAlt = 0f;
+            try { dAlt = tgt.transform.position.y - ac.transform.position.y; }
+            catch { }
+            float aspect = 180f;
+            try
+            {
+                Vector3 fromTgt = ac.transform.position - tgt.transform.position;
+                aspect = Vector3.Angle(tgt.transform.forward, fromTgt);
+            }
+            catch { }
+
+            bool shouldBreak = AiCombatEngagementService.ShouldBreakOff(dist, angle, t.BreakDist);
+            bool breakActive = now < s.BreakUntil;
+            AiCombatAcmPickService.Script rulePick = AiCombatAcmPickService.Pick(
+                dist, angle, aspect, mySpd, tgtSpd, corner, ralt, t.BreakDist, t.Skill, dAlt);
+            float rollAcm = (float)Rng.NextDouble();
+            float preferRoll = (float)Rng.NextDouble();
+            int ruleMode = AiCombatNnService.RuleMode(
+                false, rulePick, t.AcmChance, rollAcm, shouldBreak, preferRoll, canShoot);
+
+            int mode;
+            AiCombatAcmPickService.Script nnAcm;
+            if (!AiCombatNnService.TryDecide(
+                    dist, angle, aspect, mySpd, tgtSpd, corner, ralt, dAlt,
+                    t.Skill, t.AcmChance, canShoot, shouldBreak, breakActive, true, t.BreakDist,
+                    rulePick, ruleMode, Rng.NextDouble(), rollAcm,
+                    out mode, out nnAcm))
+                return false;
+
+            if (mode == AiCombatNnService.ModeAcm)
+            {
+                if (s.Maneuver == Maneuver.None && nnAcm != AiCombatAcmPickService.Script.None)
+                {
+                    float side = (Rng.NextDouble() < 0.5) ? -1f : 1f;
+                    float lo, hi;
+                    AiCombatAcmPickService.DurationRange(nnAcm, out lo, out hi);
+                    StartManeuver(s, (Maneuver)(int)nnAcm, AcmDuration(t, lo, hi), side, t);
+                }
+                else
+                    MaybePickManeuver(ac, tgt, s, t, dist, angle, helo);
+                if (RunManeuver(ac, tgt, s, t, inputs))
+                {
+                    handled = true;
+                    return true;
+                }
+                forceHunt = true;
+                return true;
+            }
+
+            ClearManeuver(s);
+            if (mode == AiCombatNnService.ModeBreakOff || breakActive)
+            {
+                if (!breakActive)
+                    s.BreakUntil = AiCombatEngagementService.BreakOffUntil(now, t.Skill);
+                DriveBreakOff(ac, s, t, inputs, helo, myPos, toTgt, now);
+                handled = true;
+                return true;
+            }
+
+            if (mode == AiCombatNnService.ModeAttack)
+                forceAttack = true;
+            else
+                forceHunt = true;
+            return true;
+        }
+
         private static void Tick(PilotBaseState state, Pilot pilot, bool helo)
         {
             Aircraft ac = AircraftOf(state);
@@ -1288,6 +1453,12 @@ namespace Oritasy
             try { inputs = ac.GetInputs(); }
             catch { }
 
+            if (TryInterceptPlayerMissile(ac, pilot, s, t, inputs, helo))
+            {
+                ClearManeuver(s);
+                return;
+            }
+
             if (TryEvade(ac, s, t, inputs, helo))
             {
                 ClearManeuver(s);
@@ -1297,6 +1468,13 @@ namespace Oritasy
             float now = Time.time;
             if (now >= s.NextRetargetAt || !ValidTarget(s.Target, ac))
                 Retarget(ac, pilot, s, t, helo);
+
+            if (s.Target is Missile)
+            {
+                DriveIntercept(ac, pilot, s, t, inputs, s.Target, helo);
+                ClearManeuver(s);
+                return;
+            }
 
             bool climbout = !helo && AiCombatEvadeService.IsClimbout(SafeRalt(ac), SpeedOf(ac));
 
@@ -1380,65 +1558,50 @@ namespace Oritasy
             try { angle = Vector3.Angle(ac.transform.forward, toTgt); }
             catch { }
 
-            // Active / newly picked energy ACM owns the tick
-            MaybePickManeuver(ac, tgt, s, t, dist, angle, helo);
-            if (RunManeuver(ac, tgt, s, t, inputs))
-                return;
-
             bool isGun;
             bool isMissile;
             WeaponStation st = PickStation(ac, tgt, t, out isGun, out isMissile);
+            bool canShootEarly = AiCombatEngagementService.CanShoot(
+                st != null, isGun, isMissile, dist, angle,
+                t.GunMax, t.GunCone, t.MissileMax, t.MissileMin, t.MissileCone);
 
-            if (now < s.BreakUntil)
+            bool nnHandled = false;
+            bool nnForceHunt = false;
+            bool nnForceAttack = false;
+            if (TryNnFight(ac, tgt, s, t, inputs, helo, dist, angle, now, myPos, toTgt,
+                    canShootEarly, out nnHandled, out nnForceHunt, out nnForceAttack))
             {
-                s.Mode = Mode.BreakOff;
-                if (helo)
+                if (nnHandled)
+                    return;
+            }
+            else
+            {
+                MaybePickManeuver(ac, tgt, s, t, dist, angle, helo);
+                if (RunManeuver(ac, tgt, s, t, inputs))
+                    return;
+
+                if (now < s.BreakUntil)
                 {
-                    Vector3 sideH = FlatSide(ac.transform.forward, s.ManeuverSide != 0f ? s.ManeuverSide : 1f);
-                    Vector3 awayH = myPos + ac.transform.forward * 1800f + sideH * 900f;
-                    AutoAim(ac, awayH, AiCombatEvadeService.ResolveHeloCruiseAgl(ac), t.Effort, Vector3.zero, true,
-                        AutopilotAim.BreakBank);
-                    if (inputs != null)
-                        inputs.throttle = 0.85f;
+                    DriveBreakOff(ac, s, t, inputs, helo, myPos, toTgt, now);
                     return;
                 }
-                // Energy break: dive-extend then zoom instead of flat run
-                Vector3 away;
-                if (AiCombatEngagementService.BreakOffDivePhase(s.BreakUntil, now))
-                {
-                    away = myPos + ac.transform.forward * 2200f
-                        + FlatSide(ac.transform.forward, s.ManeuverSide != 0f ? s.ManeuverSide : 1f) * 800f
-                        - Vector3.up * 280f;
-                    AutoAim(ac, away, Mathf.Max(140f, SafeRalt(ac) * 0.5f), t.Effort, Vector3.zero, true,
-                        AutopilotAim.BreakBank);
-                }
-                else
-                {
-                    away = myPos + Vector3.up * 1200f - toTgt.normalized * 800f;
-                    AutoAim(ac, away, SafeRalt(ac) + 500f, t.Effort, Vector3.zero, true,
-                        AutopilotAim.BreakBank);
-                }
-                if (inputs != null)
-                    inputs.throttle = 1f;
-                return;
-            }
 
-            if (AiCombatEngagementService.ShouldBreakOff(dist, angle, t.BreakDist))
-            {
-                // Prefer J-turn / extend ACM over plain break at higher tiers
-                if (AiCombatEngagementService.PreferAcmOverBreak(t.AcmChance, (float)Rng.NextDouble()))
+                if (AiCombatEngagementService.ShouldBreakOff(dist, angle, t.BreakDist))
                 {
-                    float side = (Rng.NextDouble() < 0.5) ? -1f : 1f;
-                    if (ac.speed > ResolveCorner(ac, s) * 0.9f)
-                        StartManeuver(s, Maneuver.JTurn, AcmDuration(t, 2.4f, 1.45f), side, t);
-                    else
-                        StartManeuver(s, Maneuver.EnergyExtend, AcmDuration(t, 2.2f, 1.35f), side, t);
-                    if (RunManeuver(ac, tgt, s, t, inputs))
-                        return;
+                    if (AiCombatEngagementService.PreferAcmOverBreak(t.AcmChance, (float)Rng.NextDouble()))
+                    {
+                        float side = (Rng.NextDouble() < 0.5) ? -1f : 1f;
+                        if (ac.speed > ResolveCorner(ac, s) * 0.9f)
+                            StartManeuver(s, Maneuver.JTurn, AcmDuration(t, 2.4f, 1.45f), side, t);
+                        else
+                            StartManeuver(s, Maneuver.EnergyExtend, AcmDuration(t, 2.2f, 1.35f), side, t);
+                        if (RunManeuver(ac, tgt, s, t, inputs))
+                            return;
+                    }
+                    s.BreakUntil = AiCombatEngagementService.BreakOffUntil(now, t.Skill);
+                    s.Mode = Mode.BreakOff;
+                    return;
                 }
-                s.BreakUntil = AiCombatEngagementService.BreakOffUntil(now, t.Skill);
-                s.Mode = Mode.BreakOff;
-                return;
             }
 
             float jitter = t.AimJitter;
@@ -1466,17 +1629,24 @@ namespace Oritasy
             if (!helo && tgt is Aircraft)
                 hold = Mathf.Max(hold, SafeRalt(ac) * 0.35f + 150f);
 
-            bool canShoot = AiCombatEngagementService.CanShoot(
-                st != null, isGun, isMissile, dist, angle,
-                t.GunMax, t.GunCone, t.MissileMax, t.MissileMin, t.MissileCone);
+            bool canShoot = canShootEarly;
+            bool aimAttack = canShoot;
+            if (nnForceHunt)
+            {
+                canShoot = false;
+                aimAttack = false;
+            }
+            if (nnForceAttack)
+                aimAttack = true;
 
-            if (canShoot)
+            if (aimAttack)
             {
                 s.Mode = Mode.Attack;
                 AutoAim(ac, aimPos, hold, t.Effort, vel, !(tgt is Aircraft), AutopilotAim.AttackBank);
                 if (inputs != null)
                     inputs.throttle = t.ThrottleAttack;
-                TryFire(ac, pilot, st, tgt, isGun, t, s);
+                if (canShoot)
+                    TryFire(ac, pilot, st, tgt, isGun, t, s);
             }
             else
             {
@@ -1517,6 +1687,94 @@ namespace Oritasy
                         dist, ac.speed, corner, angle, t.ThrottleAttack);
                 }
             }
+        }
+
+        private static bool TryInterceptPlayerMissile(
+            Aircraft ac, Pilot pilot, BrainState s, Tier t, ControlInputs inputs, bool helo)
+        {
+            if (ac == null || !InterceptPlayerMissilesOn())
+                return false;
+
+            Missile near = null;
+            try
+            {
+                MissileWarning mw = ac.GetMissileWarningSystem();
+                if (mw != null)
+                    mw.TryGetNearestIncoming(out near);
+            }
+            catch { }
+            if (near != null && !AiMissileInterceptService.IsPlayerFired(near))
+            {
+                float tti = AiCombatEvadeService.MissileImpactSec(ac, near);
+                if (tti < 8f)
+                    return false;
+            }
+
+            Unit shot;
+            float score;
+            if (!AiMissileInterceptService.TryPick(ac, out shot, out score) || shot == null)
+                return false;
+
+            s.Target = shot;
+            try
+            {
+                if (pilot != null)
+                    pilot.SetPrimaryTarget(shot);
+            }
+            catch { }
+            DriveIntercept(ac, pilot, s, t, inputs, shot, helo);
+            return true;
+        }
+
+        private static void DriveIntercept(
+            Aircraft ac, Pilot pilot, BrainState s, Tier t, ControlInputs inputs, Unit tgt, bool helo)
+        {
+            if (ac == null || tgt == null)
+                return;
+
+            bool isGun;
+            bool isMissile;
+            WeaponStation st = PickStation(ac, tgt, t, out isGun, out isMissile);
+            if (st == null || isGun)
+                return;
+
+            Vector3 myPos = ac.transform.position;
+            Vector3 tgtPos = tgt.transform.position;
+            Vector3 vel = TargetVel(tgt);
+            Vector3 myVel = AiCombatMathService.OwnVel(ac);
+            Vector3 fwd = ac.transform.forward;
+            Vector3 rawInt = AiCombatMathService.ComputeAirIntercept(
+                myPos, myVel, ac.speed, fwd, tgtPos, vel, false, false, t.Skill, t.LeadGain);
+            float dt = Time.fixedDeltaTime > 0.001f ? Time.fixedDeltaTime : Time.deltaTime;
+            s.Intercept = AiCombatMathService.FollowIntercept(
+                s.Intercept, s.HasIntercept, rawInt, dt, t.Skill);
+            s.HasIntercept = true;
+            s.Mode = Mode.Attack;
+
+            float hold = helo
+                ? AiCombatEvadeService.ResolveHeloAttackAgl(ac)
+                : Mathf.Max(200f, SafeRalt(ac));
+            AutoAim(ac, s.Intercept, hold, t.Effort, vel, true, AutopilotAim.AttackBank);
+            if (inputs != null)
+            {
+                inputs.throttle = t.ThrottleAttack;
+                inputs.brake = 0f;
+            }
+
+            float dist = Vector3.Distance(myPos, tgtPos);
+            if (dist < AiMissileInterceptService.MinRangeM
+                || dist > AiMissileInterceptService.MaxRangeM)
+                return;
+
+            Vector3 toInt = s.Intercept - myPos;
+            if (toInt.sqrMagnitude > 1f)
+            {
+                float ang = Vector3.Angle(fwd, toInt);
+                if (ang > AiMissileInterceptService.FireConeDeg)
+                    return;
+            }
+
+            TryFire(ac, pilot, st, tgt, false, t, s);
         }
 
         // ——— Harmony ———

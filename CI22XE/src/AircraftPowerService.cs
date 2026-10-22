@@ -132,6 +132,7 @@ namespace Oritasy
             if (!AircraftIdentity.IsXeAircraft(aircraft) || !Plugin.IsRuntimeInstance(aircraft))
                 return;
 
+            XeFleetCloneService.BindAircraftToClone(aircraft);
             RegisterLiveXe(aircraft);
             bool first = Plugin.Touched.AddAircraft(aircraft.GetInstanceID());
             bool coin = AircraftIdentity.IsCoinAircraft(aircraft);

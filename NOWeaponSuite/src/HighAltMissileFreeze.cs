@@ -21,7 +21,7 @@ namespace WeXon
             try
             {
                 // TGM-85 (especially S) owns high-alt loft/cruise — do not freeze fins.
-                if (Plugin.IsKh85Missile(missile))
+                if (Plugin.LooksLikeKh85Missile(missile))
                     return false;
             }
             catch { }

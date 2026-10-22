@@ -11,11 +11,13 @@ namespace WeXon
         internal const float DefaultSphereRadius = 3.5f;
         internal const float DefaultSpeedKeep = 0.65f;
         internal const float DefaultMinAge = 0.35f;
-        internal const int DefaultMaxHits = 2;
+        internal const int DefaultMaxHits = 3;
         internal const float MinMassKg = 40f;
-        internal const float AirOverpenMinSpeed = 200f;
-        internal const float VehicleOverpenMinSpeed = 220f;
+        internal const float AirOverpenMinSpeed = 160f;
+        internal const float VehicleOverpenMinSpeed = 120f;
         internal const float VehicleOverpenMaxMass = 12000f;
+        internal const float GunShellMinAge = 0.06f;
+        internal const float GunShellKeScale = 0.04f;
         internal const float ExtraLookSec = 0.55f;
         internal const float GraceAfterOverpenSec = 0.16f;
         /// <summary>Do not overpen-detonate on the launching unit while still this close (m).</summary>
@@ -73,8 +75,18 @@ namespace WeXon
             bool targetGroundVehicle,
             bool targetMissile)
         {
-            if (clusterBus || gunShell)
+            if (clusterBus)
                 return Decision.Skip;
+            if (gunShell)
+            {
+                if (targetBuilding || targetShip || targetMissile)
+                    return Decision.KineticDetonate;
+                if (hits >= maxHits)
+                    return Decision.KineticDetonate;
+                if (speed < 70f)
+                    return Decision.KineticDetonate;
+                return Decision.KineticOverpen;
+            }
             if (age < minAge)
                 return Decision.Skip;
             if (maxHits < 1)
@@ -85,13 +97,21 @@ namespace WeXon
                 return Decision.Skip;
             if (targetMissile)
                 return Decision.KineticDetonate;
-            if (targetShip || targetBuilding || targetGroundVehicle || ballisticOrCruise)
+            if (targetShip || targetBuilding)
+                return Decision.KineticDetonate;
+            if (ballisticOrCruise)
                 return Decision.KineticDetonate;
             if (hits >= maxHits)
                 return Decision.KineticDetonate;
             if (targetAir)
             {
                 if (speed < AirOverpenMinSpeed)
+                    return Decision.KineticDetonate;
+                return Decision.KineticOverpen;
+            }
+            if (targetGroundVehicle)
+            {
+                if (speed < VehicleOverpenMinSpeed)
                     return Decision.KineticDetonate;
                 return Decision.KineticOverpen;
             }
@@ -102,9 +122,9 @@ namespace WeXon
 
         internal static bool VehicleStopsOverpen(float targetMass, float speed)
         {
-            if (targetMass >= VehicleOverpenMaxMass)
+            if (speed < VehicleOverpenMinSpeed)
                 return true;
-            return speed < VehicleOverpenMinSpeed;
+            return false;
         }
     }
 }

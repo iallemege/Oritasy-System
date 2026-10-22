@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using BepInEx.Configuration;
@@ -10,8 +11,9 @@ namespace Oritasy
     /// QOL: two-step start. First press starts the APU (taxi at 2% APU thrust).
     /// Second press cranks the engine: ground magneto (7% fail) or air APU
     /// restart (70% fail, 3s). APU stays running after engine start and supplies
-    /// 2% backup thrust when the engines have no power. Air shutdown auto-enables the APU.
-    /// Master switch lives on Career Profile.
+    /// 2% backup thrust when the engines have no power. Press I again after
+    /// APU+engine are on to shut both down. Air shutdown auto-enables the APU.
+    /// Master switch + start-key rebind live on F1 System (also Career Profile).
     /// </summary>
     internal static class EngineStartService
     {
@@ -25,7 +27,7 @@ namespace Oritasy
         private const float ApuFailWait = 3f;
         private const float ApuSuccessWait = 2.5f;
         private const float BlinkHz = 2.2f;
-        private const float ThrottleRelease = 0.45f;
+        private const float ThrottleRelease = 0.08f;
 
         private enum Phase
         {
@@ -42,6 +44,9 @@ namespace Oritasy
             AccessTools.Field(typeof(PilotPlayerState), "simulatedThrottle");
         private static readonly HashSet<int> Completed = new HashSet<int>();
         private static ConfigEntry<bool> Enabled;
+        internal static ConfigEntry<KeyCode> StartKey;
+        private static string _cachedGameStartKey;
+        private static float _nextGameKeyLookup;
         private static bool _passThrough;
         private static Phase _phase;
         private static bool _magnetoFailed;
@@ -58,7 +63,36 @@ namespace Oritasy
         internal static void Bind(ConfigFile config)
         {
             Enabled = config.Bind("Flight", "QOL", true,
-                "Cold-start QOL: APU then magneto/engine. Toggle in Career Profile.");
+                "Cold-start QOL: APU then magneto/engine. Toggle in F1 System or Career Profile.");
+            StartKey = config.Bind("Flight", "ApuStartKey", KeyCode.None,
+                "APU / engine-start hotkey. None = game Toggle Engine. Rebind in F1 Keys.");
+        }
+
+        /// <summary>Key shown on APU prompts: F1 rebind, else the game Toggle Engine bind.</summary>
+        internal static string StartKeyLabel()
+        {
+            if (StartKey != null && StartKey.Value != KeyCode.None)
+                return StartKey.Value.ToString();
+            string game = LookupRewiredToggleEngineName();
+            if (!string.IsNullOrEmpty(game))
+                return game;
+            return "I";
+        }
+
+        internal static string StartApuPrompt()
+        {
+            string k = StartKeyLabel();
+            return UiLang.T(
+                "Please start the APU (Press " + k + ")",
+                "请启动APU（按 " + k + "）");
+        }
+
+        internal static string StartEnginePrompt()
+        {
+            string k = StartKeyLabel();
+            return UiLang.T(
+                "Please start the engine, thrust is from the APU (Press " + k + ")",
+                "请启动引擎，现在推力由APU提供（按 " + k + "）");
         }
 
         internal static bool IsOn()
@@ -90,7 +124,7 @@ namespace Oritasy
         {
             GUILayout.Label(UiLang.T("QOL", "QOL"), GUILayout.ExpandWidth(true));
             GUILayout.BeginHorizontal();
-            GUILayout.Label(UiLang.T("Engine start", "引擎启动"), GUILayout.Width(140f));
+            GUILayout.Label(UiLang.T("Engine start / APU", "引擎启动 / APU"), GUILayout.Width(140f));
             Color prev = GUI.backgroundColor;
             bool on = IsOn();
             GUI.backgroundColor = on ? new Color(0.45f, 0.85f, 0.55f) : Color.white;
@@ -108,12 +142,14 @@ namespace Oritasy
             GUILayout.Label(
                 on
                     ? UiLang.T(
-                        "ON: APU then magneto/engine. APU stays on as 2% backup when engines have no power.",
-                        "开：先APU再磁电机/引擎。APU保持运转，引擎没动力时提供2%备份推力。")
+                        "ON: APU then magneto/engine. Rebind the start key in F1 Keys. APU stays on as 2% backup when engines have no power.",
+                        "开：先APU再磁电机/引擎。可在 F1 键位里改启动键。APU保持运转，引擎没动力时提供2%备份推力。")
                     : UiLang.T(
                         "OFF: vanilla ignition. Engine is on at spawn; no APU sequence.",
                         "关：原版点火。出生即开车，无APU流程。"),
                 GUILayout.ExpandWidth(true));
+            JammerQte.DrawProfileToggle();
+            AirframeWearGui.DrawProfileToggle();
         }
 
         internal static void SetEnabled(bool on)
@@ -154,6 +190,7 @@ namespace Oritasy
                     ForceEngineOff(ac);
             }
 
+            TickCustomStartKey(ac);
             SyncApu(ac);
             if (_phase != Phase.None)
                 AdvanceSequence(ac);
@@ -167,11 +204,9 @@ namespace Oritasy
                 return;
             string text = null;
             if (ShouldFlashStartApu())
-                text = UiLang.T("Please start the APU", "请启动APU");
+                text = StartApuPrompt();
             else if (ShouldFlashStartEngine())
-                text = UiLang.T(
-                    "Please start the engine, thrust is from the APU",
-                    "请启动引擎，现在推力由APU提供");
+                text = StartEnginePrompt();
             else if (_holdUntilThrottle)
                 text = UiLang.T("Advance the throttle to move", "请推节流阀");
             if (text == null)
@@ -182,8 +217,8 @@ namespace Oritasy
             if (pulse < 0.22f)
                 return;
             EnsurePromptStyle();
-            float w = 720f;
-            float h = 36f;
+            float w = 920f;
+            float h = 44f;
             float x = (UiScaleService.Width - w) * 0.5f;
             float y = UiScaleService.Height * 0.16f;
             Rect r = new Rect(x, y, w, h);
@@ -235,14 +270,89 @@ namespace Oritasy
                 return;
             _promptStyle = new GUIStyle(GUI.skin.label);
             _promptStyle.alignment = TextAnchor.MiddleCenter;
-            _promptStyle.fontSize = 22;
+            _promptStyle.fontSize = 20;
             _promptStyle.fontStyle = FontStyle.Bold;
             _promptStyle.normal.textColor = Color.white;
-            _promptStyle.wordWrap = false;
+            _promptStyle.wordWrap = true;
+        }
+
+        private static void TickCustomStartKey(Aircraft ac)
+        {
+            if (ac == null || StartKey == null)
+                return;
+            if (StartKey.Value == KeyCode.None)
+                return;
+            if (AircraftManeuverGui.IsRebinding)
+                return;
+            if (!Input.GetKeyDown(StartKey.Value))
+                return;
+            BlockToggle(ac);
+        }
+
+        private static string LookupRewiredToggleEngineName()
+        {
+            if (Time.unscaledTime < _nextGameKeyLookup && !string.IsNullOrEmpty(_cachedGameStartKey))
+                return _cachedGameStartKey;
+            _nextGameKeyLookup = Time.unscaledTime + 2f;
+            string found = null;
+            try
+            {
+                FieldInfo f = typeof(GameManager).GetField("playerInput",
+                    BindingFlags.Public | BindingFlags.Static);
+                object player = f != null ? f.GetValue(null) : null;
+                if (player == null)
+                    return _cachedGameStartKey;
+                PropertyInfo controllersProp = player.GetType().GetProperty("controllers");
+                object controllers = controllersProp != null
+                    ? controllersProp.GetValue(player, null) : null;
+                if (controllers == null)
+                    return _cachedGameStartKey;
+                PropertyInfo mapsProp = controllers.GetType().GetProperty("maps");
+                object maps = mapsProp != null ? mapsProp.GetValue(controllers, null) : null;
+                if (maps == null)
+                    return _cachedGameStartKey;
+                MethodInfo m = maps.GetType().GetMethod("GetFirstButtonMapWithAction",
+                    new Type[] { typeof(string), typeof(bool) });
+                if (m == null)
+                    m = maps.GetType().GetMethod("GetFirstElementMapWithAction",
+                        new Type[] { typeof(string), typeof(bool) });
+                if (m == null)
+                    return _cachedGameStartKey;
+                object map = m.Invoke(maps, new object[] { "Toggle Engine", true });
+                if (map == null)
+                    return _cachedGameStartKey;
+                PropertyInfo keyProp = map.GetType().GetProperty("keyCode");
+                if (keyProp != null)
+                {
+                    object kv = keyProp.GetValue(map, null);
+                    if (kv is KeyCode)
+                    {
+                        KeyCode kc = (KeyCode)kv;
+                        if (kc != KeyCode.None)
+                            found = kc.ToString();
+                    }
+                }
+                if (string.IsNullOrEmpty(found))
+                {
+                    PropertyInfo nameProp = map.GetType().GetProperty("elementIdentifierName");
+                    if (nameProp != null)
+                    {
+                        string n = nameProp.GetValue(map, null) as string;
+                        if (!string.IsNullOrEmpty(n))
+                            found = n;
+                    }
+                }
+            }
+            catch { }
+            if (!string.IsNullOrEmpty(found))
+                _cachedGameStartKey = found;
+            return _cachedGameStartKey;
         }
 
         internal static bool BlockToggle(Aircraft ac)
         {
+            if (EmpPulseService.IsStunned(ac))
+                return true;
             if (!IsOn())
                 return false;
             if (ac == null || _passThrough)
@@ -251,8 +361,14 @@ namespace Oritasy
                 return false;
             if (!IsLocalPlayerAircraft(ac))
                 return false;
-            if (ac.Ignition)
-                return false;
+            bool ignition = false;
+            try { ignition = ac.Ignition; }
+            catch { }
+            if (ignition)
+            {
+                ShutdownEngineAndApu(ac);
+                return true;
+            }
             if (_phase != Phase.None)
                 return true;
             if (_apuOn && !AirframeWearService.ApuCanStartEngine())
@@ -446,9 +562,29 @@ namespace Oritasy
             }
         }
 
+        /// <summary>Player I after APU+engine: cut both and return to cold-start prompts.</summary>
+        private static void ShutdownEngineAndApu(Aircraft ac)
+        {
+            if (ac == null)
+                return;
+            DisableApu();
+            ClearSequence();
+            _holdUntilThrottle = false;
+            _holdAircraftId = 0;
+            try { Completed.Remove(ac.GetInstanceID()); }
+            catch { }
+            ForceEngineOff(ac);
+            Report(ac, UiLang.T("Engine and APU shut down", "引擎与APU已关闭"), 2.4f);
+        }
+
         private static void ForceEngineOff(Aircraft ac)
         {
-            if (ac == null || !ac.Ignition)
+            if (ac == null)
+                return;
+            bool on = false;
+            try { on = ac.Ignition; }
+            catch { return; }
+            if (!on)
                 return;
             try
             {
@@ -531,13 +667,26 @@ namespace Oritasy
             {
                 return;
             }
+            // Soft park only — hard zero fought engine thrust and jittered speed digits.
             try
             {
                 Vector3 v = ac.rb.velocity;
-                v.x = 0f;
-                v.z = 0f;
-                ac.rb.velocity = v;
-                ac.rb.angularVelocity = Vector3.zero;
+                float h = Mathf.Sqrt(v.x * v.x + v.z * v.z);
+                if (h < 0.35f)
+                {
+                    v.x = 0f;
+                    v.z = 0f;
+                    ac.rb.velocity = v;
+                }
+                else
+                {
+                    v.x *= 0.85f;
+                    v.z *= 0.85f;
+                    ac.rb.velocity = v;
+                }
+                Vector3 w = ac.rb.angularVelocity;
+                if (w.sqrMagnitude > 0.25f)
+                    ac.rb.angularVelocity = w * 0.7f;
             }
             catch { }
         }
@@ -644,6 +793,8 @@ namespace Oritasy
             try
             {
                 List<IEngine> list = ac.engines;
+                if (list == null || list.Count == 0)
+                    list = ac.engineStates;
                 if (list == null || list.Count == 0)
                     return false;
                 for (int i = 0; i < list.Count; i++)
@@ -771,7 +922,8 @@ namespace Oritasy
         {
             if (ac == null || !Plugin.IsRuntimeInstance(ac))
                 return false;
-            return AircraftIdentity.IsXeAircraft(ac);
+            return AircraftIdentity.IsXeAircraft(ac)
+                || AircraftIdentity.IsBiaAircraft(ac);
         }
 
         private static bool IsLocalPlayerAircraft(Aircraft ac)
@@ -837,14 +989,9 @@ namespace Oritasy
         }
     }
 
-    [HarmonyPatch(typeof(Aircraft), "FixedUpdate")]
     internal static class Patch_Aircraft_ApuThrust
     {
-        [HarmonyPostfix]
-        private static void Postfix(Aircraft __instance)
-        {
-            EngineStartService.ApplyApuThrust(__instance);
-        }
+        // Aircraft.FixedUpdate postfix lives on Patch_Bia_SpawnGrace (one Harmony invoke).
     }
 
     [HarmonyPatch(typeof(Aircraft), "CmdToggleIgnition")]

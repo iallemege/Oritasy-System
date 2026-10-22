@@ -36,8 +36,21 @@ namespace WeXon
 
         internal static float TriggerRange(float yieldRangeM, float missileSpeed)
         {
+            return TriggerRange(yieldRangeM, missileSpeed, 250f);
+        }
+
+        /// <summary>
+        /// Vanilla ProxyFuse passes missileSpeed that can be GlobalPosition-scale.
+        /// Never let the kinematic floor exceed maxM (TGM-85 5MT vanished at R≈1e10).
+        /// </summary>
+        internal static float TriggerRange(float yieldRangeM, float missileSpeed, float maxM)
+        {
             float kinematic = Mathf.Max(0f, missileSpeed) * KinematicFloorSeconds;
-            return Mathf.Max(yieldRangeM, kinematic);
+            float hi = maxM < 1f ? 1f : maxM;
+            float r = Mathf.Max(yieldRangeM, kinematic);
+            if (r > hi)
+                r = hi;
+            return r;
         }
 
         /// <summary>True when relative motion has passed closest point of approach.</summary>

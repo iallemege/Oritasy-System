@@ -34,7 +34,7 @@ namespace WeXon
                     return false;
                 if (Plugin.IsScannerReconMissile(missile))
                     return false;
-                if (Plugin.IsKh85Missile(missile) || Plugin.IsLikelyUnstampedKh85Launch(missile))
+                if (Plugin.LooksLikeKh85Missile(missile))
                     return false;
                 if (AgmTWeapon.HasBusDispenser(missile) || AgmTWeapon.IsAgmTMissile(missile)
                     || AgmTWeapon.IsGs25Submunition(missile))

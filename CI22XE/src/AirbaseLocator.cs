@@ -10,6 +10,22 @@ namespace Oritasy
     /// </summary>
     internal static class AirbaseLocator
     {
+        // 266C: cache FindObjectsOfType<Airbase> (was N+1 per ship in FindAirbaseForShip).
+        private static Airbase[] _cachedAirbases;
+        private static float _airbasesCacheUntil;
+        private const float AirbasesCacheTtlSec = 1.0f;
+
+        private static Airbase[] GetCachedAirbases()
+        {
+            float now = Time.unscaledTime;
+            if (_cachedAirbases != null && now < _airbasesCacheUntil)
+                return _cachedAirbases;
+            try { _cachedAirbases = UnityEngine.Object.FindObjectsOfType<Airbase>(); }
+            catch { _cachedAirbases = null; }
+            _airbasesCacheUntil = now + AirbasesCacheTtlSec;
+            return _cachedAirbases;
+        }
+
         internal static Airbase Resolve(Aircraft ac, bool carrierOnly, Airbase preferred)
         {
             try
@@ -165,7 +181,7 @@ namespace Oritasy
 
             try
             {
-                Airbase[] all = UnityEngine.Object.FindObjectsOfType<Airbase>();
+                Airbase[] all = GetCachedAirbases();
                 if (all != null)
                 {
                     for (int i = 0; i < all.Length; i++)
@@ -238,7 +254,7 @@ namespace Oritasy
 
             try
             {
-                Airbase[] all = UnityEngine.Object.FindObjectsOfType<Airbase>();
+                Airbase[] all = GetCachedAirbases();
                 if (all != null)
                 {
                     for (int i = 0; i < all.Length; i++)

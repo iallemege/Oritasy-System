@@ -28,6 +28,14 @@
 40mm GMG	40mm 自动榴弹发射器
 40mm Grenade	40mm 榴弹
 57mm Cannon	57mm 火炮
+57mm Railgun	57mm Railgun
+57MM RAILGUN	57MM RAILGUN
+This is a compact electromagnetic weapon developed by Tarus Electronautic in 2072. It fires 57mm APFSDS ammunition. A full capacitor dump scales muzzle velocity and kinetic energy with stored charge, and it can also fire on metered pulses. The gun also has guided munitions.	这是Tarus Electronautic在2072年研发的新型小型电磁武器，发射57mm APFSDS弹药，满仓倾泻按储能放大初速和动能，也可以通过定量脉冲发射。该炮还具备制导弹药
+106mm Recoilless Rifle	106mm Recoilless Rifle
+RR 106MM	RR 106MM
+This is a compact recoilless weapon developed by Tarus Electronautic in 2072. It fires 106mm ammunition. A full capacitor dump scales muzzle velocity and kinetic energy with stored charge, and it can also fire on metered pulses. The gun also has guided, recon, and charge-guided munitions.	这是Tarus Electronautic在2072年研发的新型小型无后坐力武器，发射106mm弹药，满仓倾泻按储能放大初速和动能，也可以通过定量脉冲发射。该炮还具备制导、侦察和充能制导弹药
+KMO-2	KMO-2
+This is a compact air-launched missile developed by Tarus Electronautic in 2072. It is a loitering kinetic munition with a 5 kt G-element warhead that produces a shockwave only. A full capacitor dump scales motor velocity and kinetic energy with stored charge, and it can also launch on metered pulses. The missile also has guided and charge-guided modes.	这是Tarus Electronautic在2072年研发的新型小型空射导弹，为巡飞动能弹药，战斗部为5千吨级G元素冲击波（仅冲击波特效），满仓倾泻按储能放大发动机速度和动能，也可以通过定量脉冲发射。该导弹还具备制导和充能制导模式
 7.5MM LMG	7.5mm 轻机枪
 70mm AT	70mm 反坦克
 70mm Light AT	70mm 轻型反坦克武器

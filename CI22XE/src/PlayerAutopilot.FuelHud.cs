@@ -155,12 +155,12 @@ namespace Oritasy
 
             try
             {
-                if (WarThunderRwrHud.HasActiveLock())
+                if (HudPackState.HasRwrLockSafe())
                 {
                     lines.Add(UiLang.T("! RADAR LOCK", "! 雷达锁定"));
                     colors.Add(new Color(1f, 0.55f, 0.15f, 1f));
                 }
-                else if (WarThunderRwrHud.HasActiveSearch())
+                else if (HudPackState.HasRwrSearchSafe())
                 {
                     lines.Add(UiLang.T("RADAR PAINT", "雷达照射"));
                     colors.Add(new Color(1f, 0.85f, 0.25f, 1f));

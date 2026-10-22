@@ -71,6 +71,11 @@ namespace Oritasy
             get { return IsOpen && _tab == 2; }
         }
 
+        internal static bool IsRebinding
+        {
+            get { return _rebindEntry != null; }
+        }
+
         internal static void TickInput()
         {
             KeyCode toggle = Plugin.GuiToggleKey != null ? Plugin.GuiToggleKey.Value : KeyCode.F1;
@@ -122,8 +127,8 @@ namespace Oritasy
                 PlayerAutopilot.CloseMenuFromOutside();
             if (AerialResupply.MenuOpen)
                 AerialResupply.CloseMenuFromOutside();
-            if (WarThunderRwrHud.LayoutMenuOpen)
-                WarThunderRwrHud.CloseLayoutMenuFromOutside();
+            if (HudPackState.LayoutMenuOpen)
+                HudPackState.CloseRwr();
             if (BeginnerAssist.MenuOpen)
                 BeginnerAssist.CloseMenuFromOutside();
             if (IlsSettingsMenu.MenuOpen)
@@ -134,7 +139,7 @@ namespace Oritasy
                 KillChoiceMenu.CloseMenuFromOutside();
             if (HostFundMenu.MenuOpen)
                 HostFundMenu.CloseMenuFromOutside();
-            AirframeWearGui.CloseFromOutside();
+            HudPackState.CloseWear();
             PlayerAutopilot.CloseWeXonSupportMenu();
             FlightScoreBridge.CloseStandalonePanel();
             CaptureCursor();
@@ -177,7 +182,7 @@ namespace Oritasy
             Aircraft ac = null;
             try { GameManager.GetLocalAircraft(out ac); }
             catch { }
-            if (ac == null || MissileCameraHud.ManualActive)
+            if (ac == null || HudPackState.ManualActive)
                 return;
             if (Event.current != null && Event.current.type != EventType.Repaint)
                 return;
@@ -430,6 +435,9 @@ namespace Oritasy
             if (e.keyCode == KeyCode.None)
                 return;
             _rebindEntry.Value = e.keyCode;
+            if (object.ReferenceEquals(_rebindEntry, InfantryModeService.BoardKey)
+                && (e.keyCode == KeyCode.I || e.keyCode == KeyCode.None))
+                _rebindEntry.Value = KeyCode.U;
             _rebindEntry = null;
             e.Use();
             SaveKeybinds();
@@ -498,27 +506,34 @@ namespace Oritasy
         {
             GUILayout.Label(UiLang.T("HOTKEYS  (not menu keys)", "热键（不含菜单键）"), _sectionStyle);
             GUILayout.Label(UiLang.T(
-                "F1 System · F2 Autopilot · F3 Beginner · F4 ILS · F5 PM · F6 Boost · F7 Host fund · F9 Support · F10 Resupply · F11 RWR layout are not listed.",
-                "F1 系统 · F2 自动驾驶 · F3 新手 · F4 ILS · F5 私信 · F6 击杀奖励 · F7 主机资金 · F9 支援 · F10 补给 · F11 RWR 布局 不在此改。"),
+                "F1 System · F2 Autopilot · F3 Anti-crash · F4 ILS · F5 PM · F6 Boost · F7 Host fund · F9 Support · F10 Resupply · F11 RWR layout are not listed.",
+                "F1 系统 · F2 自动驾驶 · F3 防坠机系统 · F4 ILS · F5 私信 · F6 击杀奖励 · F7 主机资金 · F9 支援 · F10 补给 · F11 RWR 布局 不在此改。"),
                 _labelStyle);
 
             GUILayout.Space(8f);
-            GUILayout.Label(UiLang.T("MISSILE", "导弹"), _sectionStyle);
-            DrawKeyRebind(UiLang.T("Missile PiP", "导弹画中画"), Plugin.MissileCameraKey);
-            DrawKeyRebind(UiLang.T("Man-in-the-loop", "人在回路"), Plugin.ManualMissileKey);
-            DrawKeyRebind(UiLang.T("Next missile", "切换导弹"), Plugin.MissileCameraCycleKey);
+            GUILayout.Label(UiLang.T("ENGINE / APU", "引擎 / APU"), _sectionStyle);
+            DrawApuKeyRebind();
 
             GUILayout.Space(8f);
             GUILayout.Label("HUD", _sectionStyle);
-            DrawKeyRebind(UiLang.T("Chase nose HUD", "尾追机头 HUD"), Plugin.AircraftChaseHudKey);
-            DrawKeyRebind(UiLang.T("G-meter toggle", "G 力表开关"), Plugin.GMeterKey);
-            DrawKeyRebind(UiLang.T("MITL HUD", "人在回路 HUD"), Plugin.OritasyHudKey);
-            DrawKeyRebind(UiLang.T("ILS overlay", "ILS 叠加"), AirportIlsHud.OverlayToggleKey);
+            GUILayout.Label(UiLang.T(
+                "Chase / ILS / RWR / CCIP / MFD keys live in Oritasy Hud (BepInEx/config/com.iallemege.oritasyhud.cfg).",
+                "追逐 / ILS / RWR / CCIP / MITL / MFD 热键在独立 Oritasy Hud（BepInEx/config/com.iallemege.oritasyhud.cfg）。"),
+                _labelStyle);
 
             GUILayout.Space(8f);
             GUILayout.Label(UiLang.T("AUTOPILOT", "自动驾驶"), _sectionStyle);
             DrawKeyRebind(UiLang.T("Previous mode", "上一模式"), PlayerAutopilot.PrevModeKey);
             DrawKeyRebind(UiLang.T("Next mode", "下一模式"), PlayerAutopilot.NextModeKey);
+
+            GUILayout.Space(8f);
+            GUILayout.Label(UiLang.T("INFANTRY", "步兵"), _sectionStyle);
+            DrawKeyRebind(UiLang.T("Hop out / climb in", "下车 / 上车"), InfantryModeService.BoardKey);
+            DrawKeyRebind(UiLang.T("Ibis cabin guns", "朱鹮舱内机枪"), InfantryCabinGunService.CabinKey);
+            GUILayout.Label(UiLang.T(
+                "Default U. Do not bind I — that is vanilla Toggle Engine / APU.",
+                "默认 U。不要绑 I，那是原版开关发动机 / APU。"),
+                _labelStyle);
 
             GUILayout.Space(8f);
             GUILayout.Label(UiLang.T("RESUPPLY", "空中补给"), _sectionStyle);
@@ -544,15 +559,11 @@ namespace Oritasy
 
         private static void ResetListedKeys()
         {
-            ResetOneKey(Plugin.MissileCameraKey);
-            ResetOneKey(Plugin.ManualMissileKey);
-            ResetOneKey(Plugin.MissileCameraCycleKey);
-            ResetOneKey(Plugin.AircraftChaseHudKey);
-            ResetOneKey(Plugin.GMeterKey);
-            ResetOneKey(Plugin.OritasyHudKey);
-            ResetOneKey(AirportIlsHud.OverlayToggleKey);
+            ResetOneKey(EngineStartService.StartKey);
             ResetOneKey(PlayerAutopilot.PrevModeKey);
             ResetOneKey(PlayerAutopilot.NextModeKey);
+            ResetOneKey(InfantryModeService.BoardKey);
+            ResetOneKey(InfantryCabinGunService.CabinKey);
             ResetOneKey(AerialResupply.StopKey);
             ResetOneKey(DynamicMusic.ReloadKey);
             ResetOneKey(WeXonBridge.ArsenalPrevKey);
@@ -571,41 +582,65 @@ namespace Oritasy
                 entry.Value = (KeyCode)defObj;
         }
 
+        private static void DrawApuKeyRebind()
+        {
+            ConfigEntry<KeyCode> entry = EngineStartService.StartKey;
+            if (entry == null)
+                return;
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UiLang.T("APU / engine start", "APU / 引擎启动"), _labelStyle, GUILayout.Width(168f));
+            bool listening = object.ReferenceEquals(_rebindEntry, entry);
+            string shown;
+            if (listening)
+                shown = UiLang.T("Press a key…", "按一下新键…");
+            else if (entry.Value == KeyCode.None)
+            {
+                string gameKey = EngineStartService.StartKeyLabel();
+                shown = UiLang.T("Game (" + gameKey + ")", "游戏（" + gameKey + "）");
+            }
+            else
+                shown = entry.Value.ToString();
+            if (GUILayout.Button(shown, _btnStyle, GUILayout.Height(22f)))
+                _rebindEntry = entry;
+            if (GUILayout.Button(UiLang.T("None", "无"), _btnStyle, GUILayout.Width(44f), GUILayout.Height(22f)))
+            {
+                entry.Value = KeyCode.None;
+                if (object.ReferenceEquals(_rebindEntry, entry))
+                    _rebindEntry = null;
+                SaveKeybinds();
+            }
+            if (GUILayout.Button(UiLang.T("Reset", "默认"), _btnStyle, GUILayout.Width(48f), GUILayout.Height(22f)))
+            {
+                entry.Value = KeyCode.None;
+                if (object.ReferenceEquals(_rebindEntry, entry))
+                    _rebindEntry = null;
+                SaveKeybinds();
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.Label(UiLang.T(
+                "None / Reset = game Toggle Engine. After a custom bind, APU prompts use that key.",
+                "无 / 默认 = 游戏「发动机」键。改键后 APU 提示会显示新键。"), _labelStyle);
+        }
+
         private static void DrawPackOptions()
         {
+            GUILayout.Label(UiLang.T("ENGINE START / APU", "引擎启动 / APU"), _sectionStyle);
+            EngineStartService.DrawProfileToggle();
+            DrawApuKeyRebind();
+            GUILayout.Label(UiLang.T(
+                "Turn OFF to spawn with engines running (no APU hold-to-start).",
+                "关掉后出生即开车，不再走 APU 冷车流程。"), _labelStyle);
+
+            GUILayout.Space(8f);
             GUILayout.Label(UiLang.T("WEXON WEAPONS", "WEXON 武器"), _sectionStyle);
             WeXonBridge.DrawToggles();
 
             GUILayout.Space(6f);
-            GUILayout.Label(UiLang.T("MISSILE CAMERA", "导弹镜头"), _sectionStyle);
-            if (Plugin.MissileCamera != null)
-            {
-                bool cam = GUILayout.Toggle(Plugin.MissileCamera.Value,
-                    UiLang.T(" Left missile camera (PiP)", " 左侧导弹画中画"));
-                if (cam != Plugin.MissileCamera.Value)
-                    Plugin.MissileCamera.Value = cam;
-                string camKey = Plugin.MissileCameraKey != null
-                    ? Plugin.MissileCameraKey.Value.ToString() : "Delete";
-                GUILayout.Label(UiLang.T(camKey + " missile cam · F4 ILS · F5 PM · F6 boost",
-                    camKey + " 导弹相机 · F4 ILS · F5 私信 · F6 击杀奖励"), _labelStyle);
-                DrawKeyRebind(UiLang.T("PiP key", "画中画键"), Plugin.MissileCameraKey);
-            }
-            if (Plugin.ManualMissile != null)
-            {
-                bool man = GUILayout.Toggle(Plugin.ManualMissile.Value,
-                    UiLang.T(" Man-in-the-loop (fullscreen nose)", " 人在回路"));
-                if (man != Plugin.ManualMissile.Value)
-                    Plugin.ManualMissile.Value = man;
-                string mKey = Plugin.ManualMissileKey != null ? Plugin.ManualMissileKey.Value.ToString() : "Insert";
-                string cKey = Plugin.MissileCameraCycleKey != null
-                    && Plugin.MissileCameraCycleKey.Value != KeyCode.None
-                    ? Plugin.MissileCameraCycleKey.Value.ToString() : "—";
-                GUILayout.Label(UiLang.T(
-                    mKey + " takeover · " + cKey + " next missile · WASD steer · Q/E throttle · Esc exit",
-                    mKey + " 接管 · " + cKey + " 换弹 · WASD 转向 · Q/E 油门 · Esc 退出"), _labelStyle);
-                DrawKeyRebind(UiLang.T("MITL key", "人操键"), Plugin.ManualMissileKey);
-                DrawKeyRebind(UiLang.T("Next missile", "切换导弹"), Plugin.MissileCameraCycleKey);
-            }
+            GUILayout.Label("HUD", _sectionStyle);
+            GUILayout.Label(UiLang.T(
+                "Missile camera / MITL / G-meter / RWR / CCIP / ILS / MFD are Oritasy Hud. Edit BepInEx/config/com.iallemege.oritasyhud.cfg.",
+                "导弹相机 / MITL / G 表 / RWR / CCIP / ILS / MFD 属于独立 Oritasy Hud，改 BepInEx/config/com.iallemege.oritasyhud.cfg。"),
+                _labelStyle);
 
             GUILayout.Space(6f);
             GUILayout.Label(UiLang.T("PERFORMANCE", "性能"), _sectionStyle);
@@ -632,72 +667,30 @@ namespace Oritasy
                 if (tp != Plugin.ShowThirdPersonUi.Value)
                     Plugin.ShowThirdPersonUi.Value = tp;
                 GUILayout.Label(UiLang.T(
-                    "Off: hide chase HUD, FLT REC, fuel flash, ALL tip chips (F1–F11), brand, G/RWR. Help chip stays on. Hotkeys still work; F1 System stays available.",
-                    "关：隐藏追逐 HUD、FLT REC、定时油耗、全部提示条（含 F1）、品牌条、G/RWR。左上角 Help 仍显示。热键仍可用；F1 系统菜单始终可开。"),
+                    "Off: hide FLT REC, fuel flash, F1–F10 tip chips, and the Oritasy brand. Title-screen Help is unchanged. Hotkeys still work.",
+                    "关：隐藏 FLT REC、定时油耗、F1–F10 提示条和 Oritasy 品牌条。主菜单 Help 不受影响。热键仍可用。"),
+                    _labelStyle);
+            }
+            ConfigEntry<bool> stickEntry = HudPackState.StickDisplayEntry();
+            if (stickEntry != null)
+            {
+                bool stick = GUILayout.Toggle(stickEntry.Value,
+                    UiLang.T(" Stick / throttle display", " 杆量显示"));
+                if (stick != stickEntry.Value)
+                    stickEntry.Value = stick;
+                if (Plugin.ShowStickDisplay != null && !object.ReferenceEquals(Plugin.ShowStickDisplay, stickEntry))
+                    Plugin.ShowStickDisplay.Value = stick;
+                GUILayout.Label(UiLang.T(
+                    "Bottom-right stick cross and throttle bar. Independent of chase HUD.",
+                    "右下角杆量和油门条。与追逐准星分开开关。"),
                     _labelStyle);
             }
             if (Plugin.ShowHudBrand != null)
             {
                 bool brand = GUILayout.Toggle(Plugin.ShowHudBrand.Value,
-                    UiLang.T(" Top HUD brand", " 顶部 HUD 品牌条"));
+                    UiLang.T(" Bottom-right Canvas watermark", " 右下角 Canvas 水印"));
                 if (brand != Plugin.ShowHudBrand.Value)
                     Plugin.ShowHudBrand.Value = brand;
-            }
-            if (Plugin.ShowGMeter != null)
-            {
-                bool gMeter = GUILayout.Toggle(Plugin.ShowGMeter.Value,
-                    UiLang.T(" G-force meter (right)", " G 力表"));
-                if (gMeter != Plugin.ShowGMeter.Value)
-                    Plugin.ShowGMeter.Value = gMeter;
-                string gKey = Plugin.GMeterKey != null ? Plugin.GMeterKey.Value.ToString() : "None";
-                if (Plugin.GMeterKey != null && Plugin.GMeterKey.Value == KeyCode.None)
-                {
-                    GUILayout.Label(UiLang.T("Always on when enabled · F5 is private messages",
-                        "开启后常显 · F5 为对局私信"), _labelStyle);
-                }
-                else
-                {
-                    GUILayout.Label(UiLang.T(gKey + " toggle · signed +Gz / peak hold",
-                        gKey + " 开关 · 正负 G / 峰值保持"), _labelStyle);
-                }
-            }
-            if (Plugin.EnhanceStatusDisplay != null)
-            {
-                bool dmgHud = GUILayout.Toggle(Plugin.EnhanceStatusDisplay.Value,
-                    UiLang.T(" Enhanced damage silhouette (lower-right)", " 增强右下角损伤图"));
-                if (dmgHud != Plugin.EnhanceStatusDisplay.Value)
-                    Plugin.EnhanceStatusDisplay.Value = dmgHud;
-                GUILayout.Label(UiLang.T("Larger · always on · green / amber / red / magenta",
-                    "放大常显 · 绿/黄/红/品红"), _labelStyle);
-            }
-            if (Plugin.ShowAircraftChaseHud != null)
-            {
-                bool chaseHud = GUILayout.Toggle(Plugin.ShowAircraftChaseHud.Value,
-                    UiLang.T(" Tail-chase nose HUD (3rd person)", " 尾追机头 HUD"));
-                if (chaseHud != Plugin.ShowAircraftChaseHud.Value)
-                    Plugin.ShowAircraftChaseHud.Value = chaseHud;
-                string cKey = Plugin.AircraftChaseHudKey != null
-                    ? Plugin.AircraftChaseHudKey.Value.ToString() : "F8";
-                GUILayout.Label(UiLang.T(cKey + " toggle · only in aircraft chase/tail camera",
-                    cKey + " 开关 · 仅飞机追逐/尾随视角"), _labelStyle);
-            }
-            if (RocketCcipHud.Enabled != null && !RocketCcipHud.StandalonePresent)
-            {
-                bool ccip = GUILayout.Toggle(RocketCcipHud.Enabled.Value,
-                    UiLang.T(" Rocket CCIP", " 火箭 CCIP"));
-                if (ccip != RocketCcipHud.Enabled.Value)
-                    RocketCcipHud.Enabled.Value = ccip;
-                GUILayout.Label(UiLang.T("Rockets only · cockpit / chase / orbit · safety off",
-                    "仅火箭 · 座舱/追逐/环绕 · 需解除保险"), _labelStyle);
-                if (RocketCcipHud.CepEnabled != null)
-                {
-                    bool cep = GUILayout.Toggle(RocketCcipHud.CepEnabled.Value,
-                        UiLang.T(" Rocket CEP", " 火箭 CEP"));
-                    if (cep != RocketCcipHud.CepEnabled.Value)
-                        RocketCcipHud.CepEnabled.Value = cep;
-                    GUILayout.Label(UiLang.T("Scales with ToF/range · same view as CCIP",
-                        "随飞行时间/距离缩放 · 与 CCIP 同视角"), _labelStyle);
-                }
             }
             if (BeginnerAssist.AutoDisableTerrainOnGear != null)
             {
@@ -708,59 +701,6 @@ namespace Oritasy
                 GUILayout.Label(UiLang.T(
                     "Off before gear up · after gear down locked · yields during LAND AP",
                     "收轮前关闭 · 放轮锁定后关闭 · 着陆自动驾驶时让路"), _labelStyle);
-            }
-            if (Plugin.ShowAircraftRwr != null)
-            {
-                bool rwr = GUILayout.Toggle(Plugin.ShowAircraftRwr.Value,
-                    UiLang.T(" " + AircraftRwrService.DisplayName,
-                        " " + AircraftRwrService.DisplayName));
-                if (rwr != Plugin.ShowAircraftRwr.Value)
-                    Plugin.ShowAircraftRwr.Value = rwr;
-                string rKey = Plugin.AircraftRwrKey != null
-                    ? Plugin.AircraftRwrKey.Value.ToString() : "F11";
-                GUILayout.Label(UiLang.T(rKey + " layout · position / size",
-                    rKey + " 布局 · 位置 / 大小"), _labelStyle);
-            }
-            if (RadarMfdOverlay.Enabled != null)
-            {
-                bool mfdRdr = GUILayout.Toggle(RadarMfdOverlay.Enabled.Value,
-                    UiLang.T(" Realistic radar MFD overlay", " 写实雷达 MFD 叠加"));
-                if (mfdRdr != RadarMfdOverlay.Enabled.Value)
-                    RadarMfdOverlay.Enabled.Value = mfdRdr;
-                GUILayout.Label(UiLang.T(
-                    "Only while vanilla radar MFD is on · PPI + A-scope · clutter",
-                    "仅原版雷达 MFD 开启时 · PPI + A 式 · 杂波"), _labelStyle);
-            }
-            if (Plugin.ShowOritasyHud != null)
-            {
-                bool oh = GUILayout.Toggle(Plugin.ShowOritasyHud.Value,
-                    UiLang.T(" Man-in-the-loop HUD (SPD/HDG/ACC/G)", " 人在回路 HUD"));
-                if (oh != Plugin.ShowOritasyHud.Value)
-                    Plugin.ShowOritasyHud.Value = oh;
-            }
-            if (Plugin.ShowCircularRwr != null)
-            {
-                bool rwr = GUILayout.Toggle(Plugin.ShowCircularRwr.Value,
-                    UiLang.T(" " + AircraftRwrService.DisplayName + " (missile-pilot)",
-                        " " + AircraftRwrService.DisplayName + "（导弹手）"));
-                if (rwr != Plugin.ShowCircularRwr.Value)
-                    Plugin.ShowCircularRwr.Value = rwr;
-            }
-            if (Plugin.ShowOritasyHud != null || Plugin.ShowCircularRwr != null)
-            {
-                string hKey = Plugin.OritasyHudKey != null ? Plugin.OritasyHudKey.Value.ToString() : "Backslash";
-                string mitlKey = Plugin.ManualMissileKey != null
-                    ? Plugin.ManualMissileKey.Value.ToString() : "Insert";
-                GUILayout.Label(UiLang.T(
-                    "Hidden while flying aircraft · " + mitlKey + " MITL + " + hKey + " toggle",
-                    "驾驶飞机时隐藏 · " + mitlKey + " 人在回路 + " + hKey + " 开关"), _labelStyle);
-            }
-            if (Plugin.EnhancedAirflow != null)
-            {
-                bool air = GUILayout.Toggle(Plugin.EnhancedAirflow.Value,
-                    UiLang.T(" Enhanced airflow / vapor / contrails", " 增强气流 / 水汽 / 凝结尾迹"));
-                if (air != Plugin.EnhancedAirflow.Value)
-                    Plugin.EnhancedAirflow.Value = air;
             }
 
             GameUnitDisplayService.DrawF1Section(_sectionStyle, _labelStyle, _btnStyle);
@@ -774,13 +714,6 @@ namespace Oritasy
                 if (en != Plugin.NukeShockResist.Value)
                     Plugin.NukeShockResist.Value = en;
             }
-            if (Plugin.BuildingHalfResist != null)
-            {
-                bool b = GUILayout.Toggle(Plugin.BuildingHalfResist.Value,
-                    UiLang.T(" Building resist ×0.5 (take 2× damage)", " 建筑抗性×0.5"));
-                if (b != Plugin.BuildingHalfResist.Value)
-                    Plugin.BuildingHalfResist.Value = b;
-            }
             if (Plugin.NavalTripleResist != null)
             {
                 bool n = GUILayout.Toggle(Plugin.NavalTripleResist.Value,
@@ -789,8 +722,8 @@ namespace Oritasy
                     Plugin.NavalTripleResist.Value = n;
             }
             GUILayout.Label(UiLang.T(
-                "Aircraft keep Full resist. Ground vehicles stay at half.",
-                "飞机保持完整抗性。地面载具仍为半抗。"), _labelStyle);
+                "Aircraft keep Full resist. Buildings have none. Ground vehicles stay at half.",
+                "飞机保持完整抗性。建筑无抗性。地面载具仍为半抗。"), _labelStyle);
 
             GUILayout.Space(6f);
             DynamicMusic.DrawGuiToggles();

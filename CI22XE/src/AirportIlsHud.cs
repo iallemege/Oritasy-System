@@ -66,7 +66,7 @@ namespace Oritasy
             if (AirportIlsHudGateService.ResolveDraw(
                     Enabled,
                     isRepaint,
-                    MissileCameraHud.ManualActive,
+                    HudPackState.ManualActive,
                     OritasyPresentation.BlocksHud,
                     ac != null,
                     gearDown,

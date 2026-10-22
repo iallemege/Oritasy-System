@@ -127,6 +127,9 @@ namespace Oritasy
         private static FieldInfo _attachDetachedParentField;
         private static FieldInfo _attachLocalPosField;
         private static FieldInfo _attachLocalRotField;
+        private static int _repairGuardAcId;
+        private static float _ignoreImpactUntil;
+        private static float _blockDisableUntil;
 
         private enum DamageKind
         {
@@ -301,7 +304,7 @@ namespace Oritasy
                         line, _rowStyle);
                     if (!e.Unrepairable
                         && GUI.Button(new Rect(row.xMax - 78f, row.y + 4f, 74f, row.height - 8f),
-                            zh ? "维修" : "REPAIR", _btnStyle))
+                        zh ? "维修" : "REPAIR", _btnStyle))
                     {
                         int n = RepairOne(ac, e, false);
                         InvalidateCache();
@@ -412,6 +415,7 @@ namespace Oritasy
         {
             if (ac == null)
                 return 0;
+            ArmRepairPhysicsGuard(ac, 1.2f);
             EnsureRuntimeCache(ac);
             int n = 0;
             bool anyFire = false;
@@ -514,6 +518,7 @@ namespace Oritasy
 
             if (anyFire)
                 ExtinguishParticles(ac);
+            KeepAircraftAlive(ac);
             return n;
         }
 
@@ -728,6 +733,7 @@ namespace Oritasy
         {
             if (ac == null)
                 return 0;
+            ArmRepairPhysicsGuard(ac, 2.4f);
             List<UnitPart> parts = null;
             try { parts = ac.GetAllParts(); }
             catch { }
@@ -763,12 +769,7 @@ namespace Oritasy
                 }
             }
             catch { }
-            try
-            {
-                if (ac.disabled)
-                    ac.Networkdisabled = false;
-            }
-            catch { }
+            KeepAircraftAlive(ac);
             return n;
         }
 
@@ -1012,6 +1013,70 @@ namespace Oritasy
                 return u.GetInstanceID() == _blockFireAcId;
             }
             catch { return false; }
+        }
+
+        internal static void ArmRepairPhysicsGuard(Aircraft ac, float seconds)
+        {
+            if (ac == null || seconds <= 0f)
+                return;
+            try { _repairGuardAcId = ac.GetInstanceID(); }
+            catch { return; }
+            float until = Time.unscaledTime + seconds;
+            if (until > _ignoreImpactUntil)
+                _ignoreImpactUntil = until;
+        }
+
+        internal static bool TryZeroRepairImpact(
+            UnitPart part,
+            PersistentID dealerID,
+            ref float pierceDamage,
+            ref float blastDamage,
+            ref float fireDamage,
+            ref float impactDamage)
+        {
+            if (Time.unscaledTime > _ignoreImpactUntil || part == null)
+                return false;
+            Unit u = null;
+            try { u = part.parentUnit; }
+            catch { return false; }
+            if (u == null)
+                return false;
+            int id = 0;
+            try { id = u.GetInstanceID(); }
+            catch { return false; }
+            if (id != _repairGuardAcId)
+                return false;
+            bool combat = false;
+            try { combat = dealerID.IsValid; }
+            catch { }
+            if (combat)
+                return false;
+            pierceDamage = 0f;
+            blastDamage = 0f;
+            fireDamage = 0f;
+            impactDamage = 0f;
+            _blockDisableUntil = Time.unscaledTime + 0.9f;
+            return true;
+        }
+
+        internal static bool ShouldBlockDisable(Unit u)
+        {
+            if (u == null || Time.unscaledTime > _blockDisableUntil)
+                return false;
+            try { return u.GetInstanceID() == _repairGuardAcId; }
+            catch { return false; }
+        }
+
+        private static void KeepAircraftAlive(Aircraft ac)
+        {
+            if (ac == null)
+                return;
+            try
+            {
+                if (ac.disabled)
+                    ac.Networkdisabled = false;
+            }
+            catch { }
         }
 
         private static Color KindColor(DamageKind k)
@@ -1269,6 +1334,7 @@ namespace Oritasy
         {
             if (ac == null)
                 return 0;
+            ArmRepairPhysicsGuard(ac, 2.4f);
             ExtinguishFires(ac);
             InvalidateCache();
             List<DamagedEntry> list = Scan(ac);
@@ -1356,6 +1422,7 @@ namespace Oritasy
             catch { }
 
             n += AirframeWearService.RepairAll(ac);
+            KeepAircraftAlive(ac);
             return n;
         }
 
@@ -1374,6 +1441,8 @@ namespace Oritasy
             }
             if (e.Unrepairable || IsUnrestorableDetached(e.Part))
                 return 0;
+            if (ac != null)
+                ArmRepairPhysicsGuard(ac, 2.4f);
             int n = 0;
             if (e.Part != null)
             {
@@ -1414,6 +1483,7 @@ namespace Oritasy
 
             if (!silent && ac != null && Plugin.Log != null)
                 Plugin.Log.LogInfo("ComponentRepair: " + e.Label + " (" + e.Detail + ")");
+            KeepAircraftAlive(ac);
             return Mathf.Max(1, n);
         }
 
@@ -1422,7 +1492,11 @@ namespace Oritasy
             if (part == null || IsUnrestorableDetached(part))
                 return;
 
-            bool detached = IsPartDetached(part);
+            if (IsPartDetached(part))
+            {
+                if (!TryReattachPart(part))
+                    return;
+            }
 
             int id = 0;
             try { id = part.GetInstanceID(); }
@@ -1432,32 +1506,12 @@ namespace Oritasy
             if (id != 0 && MaxHitPoints.TryGetValue(id, out recorded) && recorded > 0.01f)
                 maxHp = recorded;
 
-            if (detached)
-            {
-                try { part.Repair(); }
-                catch (Exception ex)
+                try
                 {
-                    if (Plugin.Log != null)
-                        Plugin.Log.LogWarning("UnitPart.Repair: " + ex.Message);
+                    if (part.hitPoints < maxHp)
+                        part.hitPoints = maxHp;
                 }
-                WriteBool(part, DetachedFromUnitField, false);
-                ClearAttachDetached(part);
-                AeroPart aero = part as AeroPart;
-                if (aero != null)
-                {
-                    try { aero.CheckAttachment(); }
-                    catch { }
-                    try { aero.Repair(); }
-                    catch { }
-                }
-            }
-
-            try
-            {
-                if (part.hitPoints < maxHp)
-                    part.hitPoints = maxHp;
-            }
-            catch { }
+                catch { }
 
             try
             {
@@ -2171,12 +2225,44 @@ namespace Oritasy
     internal static class Patch_UnitPart_TakeDamage_Extinguish
     {
         [HarmonyPrefix]
-        private static void Prefix(UnitPart __instance, ref float fireDamage)
+        [HarmonyPriority(Priority.First)]
+        private static bool Prefix(
+            UnitPart __instance,
+            ref float pierceDamage,
+            ref float blastDamage,
+            ref float fireDamage,
+            ref float impactDamage,
+            PersistentID dealerID)
         {
+            if (ComponentRepair.TryZeroRepairImpact(
+                __instance, dealerID,
+                ref pierceDamage, ref blastDamage, ref fireDamage, ref impactDamage))
+                return false;
             if (fireDamage <= 0f || __instance == null)
-                return;
+                return true;
             if (ComponentRepair.ShouldBlockFire(__instance))
                 fireDamage = 0f;
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(Aircraft), "ServerDisableUnit")]
+    internal static class Patch_Aircraft_ServerDisableUnit_Repair
+    {
+        [HarmonyPrefix]
+        private static bool Prefix(Aircraft __instance)
+        {
+            return !ComponentRepair.ShouldBlockDisable(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(Unit), "ReportKilled")]
+    internal static class Patch_Unit_ReportKilled_Repair
+    {
+        [HarmonyPrefix]
+        private static bool Prefix(Unit __instance)
+        {
+            return !ComponentRepair.ShouldBlockDisable(__instance);
         }
     }
 }

@@ -6,15 +6,20 @@ set GAME=d:\Steam\steamapps\common\Nuclear Option
 set MANAGED=%GAME%\NuclearOption_Data\Managed
 set BEP=%GAME%\BepInEx\core
 set OUT=%~dp0OritasyAir.dll
-set CSC=C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe
+set CSC=%~dp0..\_csc9.cmd
 set DIST=%~dp0..\dist
 set RSP=%~dp0oritasy_air_sources.rsp
 cd /d "%~dp0"
 
 if exist "%RSP%" del /f /q "%RSP%"
-for %%F in ("%~dp0src\*.cs") do >>"%RSP%" echo src\%%~nxF
+set HUDLIST=%~dp0..\hud_pack_files.txt
+set ALL=%~dp0oritasy_air_sources_all.rsp
+if exist "%ALL%" del /f /q "%ALL%"
+for %%F in ("%~dp0src\*.cs") do >>"%ALL%" echo src\%%~nxF
+findstr /V /I /G:"%HUDLIST%" "%ALL%" > "%RSP%"
+if exist "%ALL%" del /f /q "%ALL%"
 
-"%CSC%" /noconfig /nostdlib /nologo /optimize+ /target:library /platform:anycpu /langversion:5 ^
+call "%CSC%" /noconfig /nostdlib /nologo /optimize+ /target:library /platform:anycpu /langversion:10 ^
   /out:"%OUT%" ^
   /r:"%MANAGED%\mscorlib.dll" ^
   /r:"%MANAGED%\netstandard.dll" ^
@@ -27,6 +32,7 @@ for %%F in ("%~dp0src\*.cs") do >>"%RSP%" echo src\%%~nxF
   /r:"%MANAGED%\UnityEngine.CoreModule.dll" ^
   /r:"%MANAGED%\UnityEngine.dll" ^
   /r:"%MANAGED%\UnityEngine.PhysicsModule.dll" ^
+  /r:"%MANAGED%\UnityEngine.AnimationModule.dll" ^
   /r:"%MANAGED%\UnityEngine.IMGUIModule.dll" ^
   /r:"%MANAGED%\UnityEngine.TextRenderingModule.dll" ^
   /r:"%MANAGED%\UnityEngine.InputLegacyModule.dll" ^
@@ -56,5 +62,5 @@ for %%M in (menu start tactical strategic combat takeoff victory defeat) do (
 )
 echo.
 echo Packs: build_wexon / build_oritasy_air / build_split / build_combined
-echo Menu:  ..\install_pack.bat
+echo Full build + install:  ..\build_combined.bat
 endlocal

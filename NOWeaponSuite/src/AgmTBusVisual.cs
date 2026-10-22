@@ -33,13 +33,13 @@ namespace WeXon
                 return;
             if (!AgmTWeapon.HasBusDispenser(missile) && !AgmTWeapon.IsAgmTMissile(missile))
                 return;
-            ApplyToRoot(missile.gameObject);
+            ApplyToRoot(missile.gameObject, false, true);
         }
 
         /// <summary>Same ACM-119 / AAM-IV bus mesh on an arbitrary root (AAM-2CV hangar + flight).</summary>
         internal static void ApplyAcmBusMesh(GameObject root)
         {
-            ApplyToRoot(root);
+            ApplyToRoot(root, false, true);
         }
 
         internal const string TbmExhaustHolderName = "WeXon_TbmExhaust";
@@ -128,7 +128,7 @@ namespace WeXon
                 Weapon w = weapons[i];
                 if (w == null || w is Gun)
                     continue;
-                ApplyToRoot(w.gameObject, true);
+                ApplyToRoot(w.gameObject, true, true);
             }
         }
 
@@ -430,10 +430,15 @@ namespace WeXon
 
         private static void ApplyToRoot(GameObject root)
         {
-            ApplyToRoot(root, false);
+            ApplyToRoot(root, false, false);
         }
 
         private static void ApplyToRoot(GameObject root, bool hangar)
+        {
+            ApplyToRoot(root, hangar, false);
+        }
+
+        private static void ApplyToRoot(GameObject root, bool hangar, bool invertUp)
         {
             if (root == null)
                 return;
@@ -457,13 +462,16 @@ namespace WeXon
                 float scale = Plugin.AgmTBusVisualScale != null ? Plugin.AgmTBusVisualScale.Value : 1f;
                 Vector3 euler = ParseVec3(Plugin.AgmTBusVisualEuler != null
                     ? Plugin.AgmTBusVisualEuler.Value : "0,0,0");
+                if (invertUp)
+                    euler.z += 180f;
                 Vector3 extra = ParseVec3(Plugin.AgmTBusVisualOffset != null
                     ? Plugin.AgmTBusVisualOffset.Value : "0,0,0");
+                Quaternion rot = Quaternion.Euler(euler);
+                vis.transform.localRotation = rot;
+                vis.transform.localScale = new Vector3(scale, scale, scale);
                 // AAM-IV.obj origin is the tail, body on +Z / +Y — hang from the top center
                 // so the bus sits under the pylon instead of in front of / into the wing.
-                vis.transform.localPosition = AutoAlignOffset(hangar) + extra;
-                vis.transform.localRotation = Quaternion.Euler(euler);
-                vis.transform.localScale = new Vector3(scale, scale, scale);
+                vis.transform.localPosition = AutoAlignOffset(hangar, rot, scale) + extra;
 
                 MeshFilter filter = vis.AddComponent<MeshFilter>();
                 filter.sharedMesh = _mesh;
@@ -493,13 +501,36 @@ namespace WeXon
             }
         }
 
-        private static Vector3 AutoAlignOffset(bool hangar)
+        private static Vector3 AutoAlignOffset(bool hangar, Quaternion rot, float scale)
         {
             if (_mesh == null)
                 return Vector3.zero;
+            Vector3 min;
+            Vector3 max;
+            RotatedMeshBounds(rot, scale, out min, out max);
+            Vector3 center = (min + max) * 0.5f;
+            float y = hangar ? (-max.y + 0.04f) : -center.y;
+            return new Vector3(-center.x, y, -center.z);
+        }
+
+        private static void RotatedMeshBounds(Quaternion rot, float scale, out Vector3 min, out Vector3 max)
+        {
             Bounds b = _mesh.bounds;
-            float y = hangar ? (-b.max.y + 0.04f) : -b.center.y;
-            return new Vector3(-b.center.x, y, -b.center.z);
+            Vector3 c = b.center;
+            Vector3 e = b.extents;
+            min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+            max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+            int i;
+            for (i = 0; i < 8; i++)
+            {
+                Vector3 corner = new Vector3(
+                    ((i & 1) == 0) ? c.x - e.x : c.x + e.x,
+                    ((i & 2) == 0) ? c.y - e.y : c.y + e.y,
+                    ((i & 4) == 0) ? c.z - e.z : c.z + e.z);
+                Vector3 p = rot * (corner * scale);
+                min = Vector3.Min(min, p);
+                max = Vector3.Max(max, p);
+            }
         }
 
         /// <summary>
@@ -543,10 +574,15 @@ namespace WeXon
 
         private static Vector3 VisualTailInRoot(Transform vis)
         {
-            Bounds b = _mesh.bounds;
-            // Missile +Z is nose. OBJ tail is min Z; sit the flame just aft of the nozzle.
-            Vector3 meshTail = new Vector3(b.center.x, b.center.y, b.min.z - 0.07f);
-            return vis.localPosition + vis.localRotation * Vector3.Scale(meshTail, vis.localScale);
+            Vector3 min;
+            Vector3 max;
+            RotatedMeshBounds(vis.localRotation, vis.localScale.z, out min, out max);
+            // Missile +Z is nose. After yaw-180 the OBJ tail is no longer mesh min-Z.
+            Vector3 aft = vis.localPosition + new Vector3(
+                (min.x + max.x) * 0.5f,
+                (min.y + max.y) * 0.5f,
+                min.z - 0.07f);
+            return aft;
         }
 
         private static List<Transform> CollectExhaustTransforms(Transform root, Transform vis)

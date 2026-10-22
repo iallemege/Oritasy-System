@@ -16,9 +16,16 @@ namespace Oritasy
 
         internal static float DensityFloor(float minDensity, bool forceGuardian)
         {
-            float floor = Mathf.Max(0.18f, minDensity * 1.25f);
+            return DensityFloor(minDensity, forceGuardian, false);
+        }
+
+        internal static float DensityFloor(float minDensity, bool forceGuardian, bool tiltHigh)
+        {
+            float floor = Mathf.Max(0.26f, minDensity * 1.25f);
             if (forceGuardian)
-                floor = Mathf.Max(floor, 0.28f);
+                floor = Mathf.Max(floor, 0.32f);
+            if (tiltHigh)
+                floor = Mathf.Max(floor, 0.48f);
             return floor;
         }
 

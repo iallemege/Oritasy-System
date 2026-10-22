@@ -298,16 +298,29 @@ namespace Oritasy
                 return null;
 
             // Preferred: single Oritasy-owned UnityFS. Compat: JustInCase legacy filename only.
-            string[] preferred = new string[]
-            {
+            // Also one nested plugins/<zip-folder>/OritasyFonts/ — people extract the release zip as a folder.
+            string hit = FirstExisting(
                 Path.Combine(plugins, "OritasyFonts", "OritasyCJK"),
-                Path.Combine(plugins, "OritasyCJK")
-            };
-            for (int i = 0; i < preferred.Length; i++)
+                Path.Combine(plugins, "OritasyCJK"));
+            if (hit != null)
+                return hit;
+
+            try
             {
-                if (File.Exists(preferred[i]))
-                    return preferred[i];
+                string[] kids = Directory.GetDirectories(plugins);
+                if (kids != null)
+                {
+                    for (int i = 0; i < kids.Length; i++)
+                    {
+                        hit = FirstExisting(
+                            Path.Combine(kids[i], "OritasyFonts", "OritasyCJK"),
+                            Path.Combine(kids[i], "OritasyCJK"));
+                        if (hit != null)
+                            return hit;
+                    }
+                }
             }
+            catch { }
 
             // Optional third-party fallback (same UnityFS content historically).
             string justInCase = Path.Combine(plugins, "JustInCase", "NotoSansCJKsc-Regular");
@@ -325,6 +338,15 @@ namespace Oritasy
                 }
             }
             catch { }
+            return null;
+        }
+
+        private static string FirstExisting(string a, string b)
+        {
+            if (!string.IsNullOrEmpty(a) && File.Exists(a))
+                return a;
+            if (!string.IsNullOrEmpty(b) && File.Exists(b))
+                return b;
             return null;
         }
 

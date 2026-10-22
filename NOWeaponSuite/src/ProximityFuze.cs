@@ -33,6 +33,10 @@ namespace WeXon
         private static readonly FieldInfo BlastYieldField = AccessTools.Field(typeof(Missile), "blastYield");
         private static readonly FieldInfo ProxyFuseField = AccessTools.Field(typeof(Missile), "proxyFuse");
 
+        // 0=unknown, 1=needs yield prox, 2=never (conventional). Sticky so FixedUpdate stays cheap under salvo.
+        private static readonly Dictionary<int, byte> ProxDecisionCache = new Dictionary<int, byte>(128);
+        private static readonly Dictionary<int, int> WiredTargetId = new Dictionary<int, int>(64);
+
         internal static bool Enabled
         {
             get
@@ -69,9 +73,65 @@ namespace WeXon
             }
         }
 
+        /// <summary>
+        /// TGM-85 keeps impact + terrain fuse. Yield airburst (and vanilla
+        /// speed*0.25 with GlobalPosition-scale speed) detonates them in flight —
+        /// the classic "TGM disappeared" boom. Conventional cruise still uses vanilla prox.
+        /// </summary>
+        internal static bool MustNeverAirburst(Missile missile)
+        {
+            if (missile == null)
+                return false;
+            try
+            {
+                if (Plugin.IsKh85Family(missile) || Plugin.IsTgm85CNuclearMissile(missile))
+                    return true;
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>O(1) FixedUpdate gate: conventional missiles decide once and stay skipped.</summary>
+        internal static bool NeedsYieldProxHot(Missile missile)
+        {
+            if (!Enabled || missile == null)
+                return false;
+            int id;
+            try { id = missile.GetInstanceID(); }
+            catch { return false; }
+            byte d;
+            if (ProxDecisionCache.TryGetValue(id, out d))
+                return d == 1;
+            float yield = GetMissileYield(missile);
+            float refY = Plugin.ProximityRefYield != null ? Plugin.ProximityRefYield.Value : 25f;
+            float minYield = Mathf.Max(200f, refY * 4f);
+            bool nuke = false;
+            try { nuke = Plugin.IsNukeVariantMissile(missile); } catch { }
+            if (yield < minYield && !nuke)
+            {
+                ProxDecisionCache[id] = 2;
+                return false;
+            }
+            bool need = ShouldHandle(missile);
+            if (need)
+                ProxDecisionCache[id] = 1;
+            return need;
+        }
+
+        internal static void ForgetMissile(int id)
+        {
+            if (id == 0)
+                return;
+            ProxDecisionCache.Remove(id);
+            WiredTargetId.Remove(id);
+            NextFallbackAt.Remove(id);
+        }
+
         internal static bool ShouldHandle(Missile missile)
         {
             if (!Enabled || missile == null || missile.disabled)
+                return false;
+            if (MustNeverAirburst(missile))
                 return false;
             // Cheap first: conventional HE never needs our yield prox (every-FU path).
             float yield = GetMissileYield(missile);
@@ -139,11 +199,28 @@ namespace WeXon
         /// <summary>Wire vanilla ProxyFuse to current target so DetectCollisions can fire it.</summary>
         internal static void EnsureProxyWired(Missile missile)
         {
+            if (!NeedsYieldProxHot(missile))
+                return;
             if (!ShouldHandle(missile))
                 return;
             Unit tgt = ResolveFuzeTarget(missile);
             if (tgt == null)
                 return;
+            int mid;
+            int tid;
+            try
+            {
+                mid = missile.GetInstanceID();
+                tid = tgt.GetInstanceID();
+            }
+            catch { return; }
+            int prev;
+            if (WiredTargetId.TryGetValue(mid, out prev) && prev == tid)
+            {
+                object existing = ProxyFuseField != null ? ProxyFuseField.GetValue(missile) : null;
+                if (existing != null)
+                    return;
+            }
             try
             {
                 Transform part = null;
@@ -156,6 +233,7 @@ namespace WeXon
                 if (tt == null)
                     return;
                 missile.SetProxyFuse(tt, trb);
+                WiredTargetId[mid] = tid;
             }
             catch (Exception ex)
             {
@@ -180,14 +258,28 @@ namespace WeXon
             Missile missile = missileTransform.GetComponentInParent<Missile>();
             if (missile == null || !ShouldHandle(missile))
                 return false;
+            try
+            {
+                Unit tgtU = targetTransform.GetComponentInParent<Unit>();
+                if (GFactorRutherfordField.IsInsideField(missile)
+                    || GFactorRutherfordField.IsInsideField(tgtU)
+                    || GFactorRutherfordField.PositionNearField(missileTransform.position))
+                    return false;
+            }
+            catch { }
 
             float yield = GetMissileYield(missile);
             float range = RangeFromYield(yield);
-            float trigger = ProximityFuzeMathService.TriggerRange(range, missileSpeed);
+            float maxM = Plugin.ProximityMaxM != null ? Plugin.ProximityMaxM.Value : 250f;
+            float trigger = ProximityFuzeMathService.TriggerRange(range, missileSpeed, maxM);
 
             Vector3 tPos = targetTransform.position;
             Vector3 mPos = missileTransform.position;
-            if ((tPos - mPos).sqrMagnitude > trigger * trigger)
+            float distSqr = (tPos - mPos).sqrMagnitude;
+            if (distSqr > trigger * trigger)
+                return false;
+            // GlobalPosition mix can still report planet-scale d; never airburst that far.
+            if (distSqr > maxM * maxM)
                 return false;
 
             Vector3 tgtVel = targetVelocity;
@@ -239,6 +331,8 @@ namespace WeXon
         /// </summary>
         internal static void TickFallback(Missile missile)
         {
+            if (!NeedsYieldProxHot(missile))
+                return;
             if (!ShouldHandle(missile))
                 return;
 
@@ -262,6 +356,9 @@ namespace WeXon
 
             float yield = GetMissileYield(missile);
             float range = RangeFromYield(yield);
+            float maxM = Plugin.ProximityMaxM != null ? Plugin.ProximityMaxM.Value : 250f;
+            if (range > maxM)
+                range = maxM;
             Vector3 mPos = missile.transform.position;
             Vector3 tPos = tgt.transform.position;
             Vector3 delta = mPos - tPos;
@@ -322,12 +419,18 @@ namespace WeXon
             if (__instance == null)
                 return true;
 
-            // If this proxy belongs to a missile we refuse to handle, leave vanilla alone.
+            // Kh85 / cruise: skip vanilla speed*0.25 too — GlobalPosition-scale
+            // missileSpeed made TGM-85 airburst and vanish a few seconds after launch.
             try
             {
                 FieldInfo mt = AccessTools.Field(__instance.GetType(), "missileTransform");
                 Transform tr = mt != null ? mt.GetValue(__instance) as Transform : null;
                 Missile m = tr != null ? tr.GetComponentInParent<Missile>() : null;
+                if (m != null && YieldProximityFuze.MustNeverAirburst(m))
+                {
+                    __result = false;
+                    return false;
+                }
                 if (m != null && !YieldProximityFuze.ShouldHandle(m))
                     return true;
             }

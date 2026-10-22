@@ -31,6 +31,13 @@ namespace Oritasy
 
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
 
+            try { XeFleetCloneService.EnsureAll(); }
+            catch (System.Exception ex)
+            {
+                if (Log != null)
+                    Log.LogWarning("XE fleet clone: " + ex.Message);
+            }
+
             AircraftDefinition[] defs = Resources.FindObjectsOfTypeAll<AircraftDefinition>();
             for (int i = 0; i < defs.Length; i++)
                 TryRenameDefinition(defs[i]);
@@ -46,6 +53,9 @@ namespace Oritasy
             BuildingDefinition[] buildings = Resources.FindObjectsOfTypeAll<BuildingDefinition>();
             for (int i = 0; i < buildings.Length; i++)
                 TryBrandBuildingDefinition(buildings[i]);
+            BuildingResistStripService.StripLiveWorld();
+
+            MorayRuntime.AfterLoad(Plugin.GetEncyclopedia());
 
             RefreshEncyclopediaAircraft();
             RefreshEncyclopediaShips();
@@ -53,6 +63,7 @@ namespace Oritasy
             RefreshEncyclopediaBuildings();
 
             ArtilleryAaService.Apply();
+            KeAmmoCloneService.Ensure();
 
             Aircraft[] aircraft = Resources.FindObjectsOfTypeAll<Aircraft>();
             for (int i = 0; i < aircraft.Length; i++)

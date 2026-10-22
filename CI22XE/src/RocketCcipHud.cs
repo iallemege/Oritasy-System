@@ -132,7 +132,7 @@ namespace Oritasy
                 _hasImpact = false;
                 return;
             }
-            if (MissileCameraHud.ManualActive
+            if (HudPackState.ManualActive
                 || AircraftManeuverGui.IsOpen
                 || OritasyPresentation.BlocksHud)
             {
@@ -206,7 +206,7 @@ namespace Oritasy
                 return;
             if (Event.current != null && Event.current.type != EventType.Repaint)
                 return;
-            if (MissileCameraHud.ManualActive
+            if (HudPackState.ManualActive
                 || AircraftManeuverGui.IsOpen
                 || OritasyPresentation.BlocksHud)
                 return;

@@ -35,6 +35,7 @@ namespace Oritasy
         private static readonly List<string> RegisteredFiles = new List<string>();
         private static int _onEnableFrame = -1;
         private static int _onEnableBudget;
+        private static int _menuScanCount;
 
         private static readonly string[] OsFontNames = new string[]
         {
@@ -88,9 +89,9 @@ namespace Oritasy
             try { Directory.CreateDirectory(FontsDir()); }
             catch { }
 
-            _cjkFont = TryLoadOsFont();
+            _cjkFont = TryLoadFromPluginsFolder();
             if (_cjkFont == null)
-                _cjkFont = TryLoadFromPluginsFolder();
+                _cjkFont = TryLoadOsFont();
 
             if (_cjkFont != null && Plugin.Log != null)
                 Plugin.Log.LogInfo("ChineseFontPatch: " + _source);
@@ -107,11 +108,29 @@ namespace Oritasy
             if (_cjkFont == null)
                 return;
 
-            float now = Time.unscaledTime;
-            if (now < _nextScanAt)
+            bool menu = false;
+            try { menu = OritasyPresentation.MainMenuActive; }
+            catch { }
+            if (menu)
+            {
+                // 210C retried FindObjectsOfType every 2.5s on the title screen and
+                // hitch the menu. Patch twice (load + late widgets), then stop.
+                // Text.OnEnable Harmony covers anything spawned later.
+                if (_menuScanCount >= 2)
+                    return;
+                float nowMenu = Time.unscaledTime;
+                if (_menuScanCount == 1 && nowMenu < _nextScanAt)
+                    return;
+                PatchSceneTexts(true);
+                _menuScanCount++;
+                _nextScanAt = nowMenu + 1.2f;
                 return;
-            _nextScanAt = now + PerfMode.ChineseFontScanInterval();
-            PatchSceneTexts();
+            }
+
+            _menuScanCount = 0;
+            // In-mission FindObjectsOfType<Text> scales with nametags / combat HUD
+            // and freezes for seconds near enemies. Text.OnEnable Harmony covers
+            // new labels; do not rescan the whole scene.
         }
 
         internal static bool IsPatched(int id)
@@ -188,8 +207,46 @@ namespace Oritasy
 
         private static Font TryLoadFromPluginsFolder()
         {
-            string dir = FontsDir();
-            if (!Directory.Exists(dir))
+            string[] dirs = FontSearchDirs();
+            for (int i = 0; i < dirs.Length; i++)
+            {
+                Font f = TryLoadFromDir(dirs[i]);
+                if (f != null)
+                    return f;
+            }
+            return null;
+        }
+
+        private static string[] FontSearchDirs()
+        {
+            List<string> dirs = new List<string>(4);
+            string root = FontsDir();
+            if (!string.IsNullOrEmpty(root))
+                dirs.Add(root);
+            try
+            {
+                string plugins = Paths.PluginPath;
+                if (!string.IsNullOrEmpty(plugins) && Directory.Exists(plugins))
+                {
+                    string[] kids = Directory.GetDirectories(plugins);
+                    if (kids != null)
+                    {
+                        for (int i = 0; i < kids.Length; i++)
+                        {
+                            string nested = Path.Combine(kids[i], "OritasyFonts");
+                            if (Directory.Exists(nested) && dirs.IndexOf(nested) < 0)
+                                dirs.Add(nested);
+                        }
+                    }
+                }
+            }
+            catch { }
+            return dirs.ToArray();
+        }
+
+        private static Font TryLoadFromDir(string dir)
+        {
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
                 return null;
 
             string[] files;
@@ -217,8 +274,8 @@ namespace Oritasy
             });
             int size = ClampSize();
 
-            // Pass 1: non-VF only. Pass 2: allow VF if nothing else works.
-            for (int pass = 0; pass < 2; pass++)
+            // Pass 1 only: never use variable fonts. Unity HUD / IMGUI turn VF faces into black blobs.
+            for (int pass = 0; pass < 1; pass++)
             {
                 for (int i = 0; i < files.Length; i++)
                 {
@@ -328,7 +385,7 @@ namespace Oritasy
             catch { return null; }
         }
 
-        private static void PatchSceneTexts()
+        private static void PatchSceneTexts(bool mainMenu)
         {
             Text[] texts;
             try { texts = UnityEngine.Object.FindObjectsOfType<Text>(); }
@@ -345,6 +402,8 @@ namespace Oritasy
                 int id = t.GetInstanceID();
                 if (PatchedTextIds.Contains(id))
                     continue;
+                if (!mainMenu && ShouldSkipHudText(t))
+                    continue;
                 try
                 {
                     if (t.font != f)
@@ -355,6 +414,77 @@ namespace Oritasy
             }
             if (PatchedTextIds.Count > 4000)
                 PatchedTextIds.Clear();
+        }
+
+        internal static bool ShouldSkipHudComponent(Component c)
+        {
+            if (c == null)
+                return false;
+            try
+            {
+                if (c.GetComponentInParent<FlightHud>() != null)
+                    return true;
+                if (c.GetComponentInParent<HUDApp>() != null)
+                    return true;
+                if (c.GetComponentInParent<CombatHUD>() != null)
+                    return true;
+                if (c.GetComponentInParent<StatusDisplay>() != null)
+                    return true;
+                if (c.GetComponentInParent<HeadMountedDisplay>() != null)
+                    return true;
+                if (c.GetComponentInParent<HUDAppManager>() != null)
+                    return true;
+                if (c.GetComponentInParent<ChargeIndicator>() != null)
+                    return true;
+                if (c.GetComponentInParent<WeaponIndicator>() != null)
+                    return true;
+                if (c.GetComponentInParent<CountermeasureIndicator>() != null)
+                    return true;
+            }
+            catch { }
+            Transform x = null;
+            try { x = c.transform; }
+            catch { return false; }
+            int hops = 0;
+            while (x != null && hops < 12)
+            {
+                string n = x.name;
+                if (!string.IsNullOrEmpty(n))
+                {
+                    string l = n.ToLowerInvariant();
+                    if (l.IndexOf("flighthud") >= 0 || l.IndexOf("hudextras") >= 0
+                        || l.IndexOf("hmd") >= 0 || l == "hud" || l.StartsWith("hud"))
+                        return true;
+                    if (l.IndexOf("oritasy_note", StringComparison.Ordinal) >= 0
+                        || l.IndexOf("oritasy_guide", StringComparison.Ordinal) >= 0
+                        || l.IndexOf("oritasy_changelog", StringComparison.Ordinal) >= 0)
+                        return true;
+                }
+                try { x = x.parent; }
+                catch { break; }
+                hops++;
+            }
+            return false;
+        }
+
+        internal static bool ShouldSkipHudText(Text t)
+        {
+            if (t == null)
+                return false;
+            if (ShouldSkipHudComponent(t))
+                return true;
+            Font font = null;
+            try { font = t.font; }
+            catch { }
+            if (font != null && !font.dynamic)
+                return true;
+            if (font != null && !string.IsNullOrEmpty(font.name))
+            {
+                string fn = font.name.ToLowerInvariant();
+                if (fn.IndexOf("hud") >= 0 || fn.IndexOf("digital") >= 0)
+                    return true;
+            }
+            return false;
         }
     }
 
@@ -373,6 +503,11 @@ namespace Oritasy
                 int id = __instance.GetInstanceID();
                 // Already applied — skip. Do not mark before budget, or Tick will never retry.
                 if (ChineseFontPatch.IsPatched(id))
+                    return;
+                bool menu = false;
+                try { menu = OritasyPresentation.MainMenuActive; }
+                catch { }
+                if (!menu && ChineseFontPatch.ShouldSkipHudText(__instance))
                     return;
                 if (!ChineseFontPatch.ConsumeOnEnableBudget())
                     return;

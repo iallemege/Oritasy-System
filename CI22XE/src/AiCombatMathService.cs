@@ -177,10 +177,12 @@ namespace Oritasy
             if (w == null || tgt == null)
                 return false;
             WeaponRole role = ClassifyWeapon(w);
-            if (role == WeaponRole.Gun)
-                return true;
             if (role == WeaponRole.None)
                 return false;
+            if (tgt is Missile)
+                return role == WeaponRole.Air || role == WeaponRole.Dual;
+            if (role == WeaponRole.Gun)
+                return true;
 
             bool airTgt = tgt is Aircraft;
             if (airTgt)

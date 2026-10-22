@@ -2,7 +2,7 @@ namespace WeXon
 {
     /// <summary>
     /// Free-hunt radius must exceed the missile's own kinematic range.
-    /// Plugin estimates range; this service only does the max(floor, range * factor) math.
+    /// 175C floor is 35 km — never apply PerfBudgetService.HuntRadiusCap (8–14 km) here.
     /// </summary>
     internal static class HuntRangeGateService
     {

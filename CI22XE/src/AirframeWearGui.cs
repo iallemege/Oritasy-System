@@ -48,6 +48,7 @@ namespace Oritasy
 
         internal static void DrawProfileToggle()
         {
+            AirframeWearService.DrawProfileToggle();
             GUILayout.BeginHorizontal();
             GUILayout.Label(UiLang.T("F8 Engine Component Monitor", "F8 引擎组件监视系统"), GUILayout.Width(220f));
             Color prev = GUI.backgroundColor;
@@ -163,39 +164,39 @@ namespace Oritasy
             string acName = "?";
             try { acName = AircraftIdentity.GetKey(ac); }
             catch { }
-            string flicker = AirframeWearService.Flickering()
+            string flicker = WearView.Flickering()
                 ? (zh ? "  ·  推力不稳" : "  ·  THRUST FLICKER")
                 : "";
-            string abHold = AirframeWearService.HasAfterburner()
+            string abHold = WearView.HasAfterburner()
                 ? ((zh ? "  |  加力 " : "  |  AB ")
-                    + AirframeWearService.AbHoldSeconds().ToString("0.0") + "s")
+                    + WearView.AbHoldSeconds().ToString("0.0") + "s")
                 : "";
-            string abTemp = AirframeWearService.HasAfterburner()
+            string abTemp = WearView.HasAfterburner()
                 ? ((zh ? "  |  加力室 " : "  |  AB ")
-                    + AirframeWearService.AbTempC().ToString("0") + "°C")
+                    + WearView.AbTempC().ToString("0") + "°C")
                 : "";
             GUI.Label(new Rect(box.x + 14f, box.y + 30f, box.width - 28f, 50f),
-                acName + "  ·  " + AirframeWearService.FamilyLabel()
+                acName + "  ·  " + WearView.FamilyLabel()
                 + "  ·  " + EngineBankHeader(zh)
                 + flicker
                 + "\nG " + g.ToString("0.0")
                 + "  |  >"
-                + AirframeWearService.PartGGate().ToString("0")
+                + WearView.PartGGate().ToString("0")
                 + (zh ? "G 持续 " : "G ")
-                + AirframeWearService.GHoldSeconds().ToString("0.0") + "s"
+                + WearView.GHoldSeconds().ToString("0.0") + "s"
                 + abHold
                 + "  |  " + (zh ? "飞行员 " : "Pilot ")
-                + Mathf.RoundToInt(AirframeWearService.PilotHealth01() * 100f) + "%"
+                + Mathf.RoundToInt(WearView.PilotHealth01() * 100f) + "%"
                 + "  |  " + (zh ? "材料 " : "Mat ")
-                + AirframeWearService.MaterialLabel()
+                + WearView.MaterialLabel()
                 + "\n"
                 + (zh ? "标准 " : "Rated ")
-                + AirframeWearService.RatedTempC().ToString("0") + "°C @"
-                + Mathf.RoundToInt(AirframeWearService.RatedThrottle01() * 100f) + "%"
+                + WearView.RatedTempC().ToString("0") + "°C @"
+                + Mathf.RoundToInt(WearView.RatedThrottle01() * 100f) + "%"
                 + (zh ? "  |  排气 " : "  |  EGT ")
-                + AirframeWearService.CoreTempC().ToString("0") + "°C"
+                + WearView.CoreTempC().ToString("0") + "°C"
                 + (zh ? "  |  滑油 " : "  |  Oil ")
-                + AirframeWearService.OilTempC().ToString("0") + "°C"
+                + WearView.OilTempC().ToString("0") + "°C"
                 + abTemp,
                 _small);
 
@@ -203,17 +204,17 @@ namespace Oritasy
             GUI.color = new Color(0.08f, 0.10f, 0.12f, 0.96f);
             GUI.DrawTexture(map, Texture2D.whiteTexture);
             GUI.color = Color.white;
-            AirframeWearService.Family family = AirframeWearService.CurrentFamily();
-            int banks = AirframeWearService.EngineCount();
+            WearView.Family family = WearView.CurrentFamily();
+            int banks = WearView.EngineCount();
             AirframeWearSchematic.DrawSilhouette(map, family, banks);
-            if (AirframeWearService.HasMixedAltitude())
+            if (WearView.HasMixedAltitude())
             {
                 for (int b = 0; b < banks; b++)
                 {
                     float hx, hy, hw, hh;
                     if (!AirframeWearSchematic.TryBankHeader(b, banks, family, out hx, out hy, out hw, out hh))
                         continue;
-                    string alt = AirframeWearService.BankAltLabel(b);
+                    string alt = WearView.BankAltLabel(b);
                     if (string.IsNullOrEmpty(alt))
                         continue;
                     Rect cap = new Rect(
@@ -226,11 +227,11 @@ namespace Oritasy
             }
 
             _hover = -1;
-            int n = AirframeWearService.PartCount();
+            int n = WearView.PartCount();
             Vector2 mouse = Event.current != null ? Event.current.mousePosition : Vector2.zero;
             for (int i = 0; i < n; i++)
             {
-                AirframeWearService.Part p = AirframeWearService.GetPart(i);
+                WearView.Part p = WearView.GetPart(i);
                 float nx, ny, nw, nh;
                 if (!AirframeWearSchematic.TryCell(p, family, banks, out nx, out ny, out nw, out nh))
                     continue;
@@ -246,7 +247,7 @@ namespace Oritasy
                 if (cell.Contains(mouse))
                     _hover = i;
 
-                bool idle = !AirframeWearService.PartIsRunning(p);
+                bool idle = !WearView.PartIsRunning(p);
                 Color col;
                 string extra = "";
                 string label;
@@ -258,31 +259,31 @@ namespace Oritasy
                 else
                 {
                     col = AirframeWearSchematic.HealthColor(p.Health);
-                    if (p.Id != null && p.Id.EndsWith(".oil") && AirframeWearService.OilTempRatio() > 1.05f)
+                    if (p.Id != null && p.Id.EndsWith(".oil") && WearView.OilTempRatio() > 1.05f)
                         col = Color.Lerp(col, new Color(1f, 0.45f, 0.08f), 0.35f);
-                    if (p.Id != null && p.Id.EndsWith(".ab") && AirframeWearService.HasAfterburner()
-                        && AirframeWearService.AbTempC() > AirframeWearService.RatedTempC() * 1.35f)
+                    if (p.Id != null && p.Id.EndsWith(".ab") && WearView.HasAfterburner()
+                        && WearView.AbTempC() > WearView.RatedTempC() * 1.35f)
                         col = Color.Lerp(col, new Color(1f, 0.25f, 0.08f), 0.28f);
                     if (_hover == i)
                         col = Color.Lerp(col, Color.white, 0.18f);
-                    if (AirframeWearService.IsRepairing(i))
+                    if (WearView.IsRepairing(i))
                         col = Color.Lerp(col, new Color(0.35f, 0.85f, 1f), 0.35f);
-                    else if (AirframeWearService.IsQueued(i))
+                    else if (WearView.IsQueued(i))
                         col = Color.Lerp(col, new Color(0.95f, 0.85f, 0.35f), 0.28f);
-                    if (AirframeWearService.IsRepairing(i))
-                        extra = "\n" + Mathf.RoundToInt(AirframeWearService.RepairProgress01() * 100f) + "%";
-                    else if (AirframeWearService.IsQueued(i))
+                    if (WearView.IsRepairing(i))
+                        extra = "\n" + Mathf.RoundToInt(WearView.RepairProgress01() * 100f) + "%";
+                    else if (WearView.IsQueued(i))
                         extra = zh ? "\n排队" : "\nQ";
                     label = (cell.width < 58f || cell.height < 30f)
-                        ? (AirframeWearService.HealthPct(p) + "%" + extra)
-                        : (ShortName(p, zh) + "\n" + AirframeWearService.HealthPct(p) + "%" + extra);
+                        ? (WearView.HealthPct(p) + "%" + extra)
+                        : (ShortName(p, zh) + "\n" + WearView.HealthPct(p) + "%" + extra);
                 }
                 GUI.color = new Color(0.04f, 0.05f, 0.06f, 0.85f);
                 GUI.DrawTexture(new Rect(cell.x - 1f, cell.y - 1f, cell.width + 2f, cell.height + 2f),
                     Texture2D.whiteTexture);
                 GUI.color = col;
                 if (GUI.Button(cell, label, _cell))
-                    AirframeWearService.QueueRepair(i);
+                    WearView.QueueRepair(i);
                 GUI.color = Color.white;
             }
 
@@ -297,7 +298,7 @@ namespace Oritasy
             }
             for (int b = 0; b < banks; b++)
             {
-                if (AirframeWearService.BankRunning(b))
+                if (WearView.BankRunning(b))
                     continue;
                 float bx, by, bw, bh;
                 if (!AirframeWearSchematic.TryBankBox(b, banks, family, out bx, out by, out bw, out bh))
@@ -311,10 +312,10 @@ namespace Oritasy
             }
             for (int i = 0; i < n; i++)
             {
-                AirframeWearService.Part ap = AirframeWearService.GetPart(i);
-                if (!AirframeWearService.IsApuPart(ap))
+                WearView.Part ap = WearView.GetPart(i);
+                if (!WearView.IsApuPart(ap))
                     continue;
-                if (AirframeWearService.PartIsRunning(ap))
+                if (WearView.PartIsRunning(ap))
                     break;
                 float ax, ay, aw, ah;
                 if (!AirframeWearSchematic.TryCell(ap, family, banks, out ax, out ay, out aw, out ah))
@@ -331,22 +332,22 @@ namespace Oritasy
             string hint;
             if (_hover >= 0)
             {
-                AirframeWearService.Part hp = AirframeWearService.GetPart(_hover);
-                hint = AirframeWearService.PartLabel(hp)
-                    + "  " + AirframeWearService.HealthPct(hp) + "%"
+                WearView.Part hp = WearView.GetPart(_hover);
+                hint = WearView.PartLabel(hp)
+                    + "  " + WearView.HealthPct(hp) + "%"
                     + (hp.Ceiling < 0.995f
-                        ? ("  " + (zh ? "上限 " : "cap ") + AirframeWearService.CeilingPct(hp) + "%")
+                        ? ("  " + (zh ? "上限 " : "cap ") + WearView.CeilingPct(hp) + "%")
                         : "");
-                if (!AirframeWearService.PartIsRunning(hp))
+                if (!WearView.PartIsRunning(hp))
                     hint += zh ? "  ·  未运转" : "  ·  not running";
-                string thint = AirframeWearService.PartTempHint(hp);
+                string thint = WearView.PartTempHint(hp);
                 if (!string.IsNullOrEmpty(thint))
                     hint += "  ·  " + thint;
                 hint += zh ? "  ·  点击排队维修（2秒，不降上限）" : "  ·  click to queue 2s repair (no cap drop)";
             }
             else
             {
-                int qn = AirframeWearService.RepairQueueCount();
+                int qn = WearView.RepairQueueCount();
                 hint = zh
                     ? "绿=健康  红=损伤  ·  点击方块排队维修（每件2秒，不降上限）  ·  全部维修会降上限"
                     : "Green=healthy  Red=damaged  ·  click to queue 2s repair (no cap drop)  ·  Repair All lowers cap";
@@ -357,7 +358,7 @@ namespace Oritasy
 
             if (GUI.Button(new Rect(box.x + 12f, box.yMax - 36f, box.width - 24f, 26f),
                 zh ? "维修全部组件（秒修，降低上限）" : "REPAIR ALL PARTS (instant, lowers cap)", _btn))
-                AirframeWearService.RepairAllEngines(ac);
+                WearView.RepairAllEngines(ac);
         }
 
         private static void DrawCornerHint()
@@ -365,12 +366,6 @@ namespace Oritasy
             Aircraft ac = LocalAircraft();
             if (ac == null)
                 return;
-            try
-            {
-                if (MissileCameraHud.ManualActive)
-                    return;
-            }
-            catch { }
             if (Event.current != null && Event.current.type != EventType.Repaint)
                 return;
 
@@ -421,8 +416,8 @@ namespace Oritasy
 
         private static string EngineBankHeader(bool zh)
         {
-            int n = AirframeWearService.LoCount();
-            if (AirframeWearService.HasMixedAltitude())
+            int n = WearView.LoCount();
+            if (WearView.HasMixedAltitude())
             {
                 return n
                     + (zh ? " 低空 + " : " LO + ")
@@ -432,13 +427,13 @@ namespace Oritasy
             return n + (zh ? " 发" : " eng");
         }
 
-        private static string ShortName(AirframeWearService.Part p, bool zh)
+        private static string ShortName(WearView.Part p, bool zh)
         {
             string n = zh ? p.Zh : p.En;
             if (p.Bank >= 0)
             {
                 string pre = p.Prop ? (zh ? "桨" : "P") : (zh ? "发" : "E");
-                string alt = AirframeWearService.BankAltShort(p.Bank);
+                string alt = WearView.BankAltShort(p.Bank);
                 if (!string.IsNullOrEmpty(alt))
                     return pre + (p.Bank + 1) + alt + " " + n;
                 return pre + (p.Bank + 1) + " " + n;

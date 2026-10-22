@@ -33,17 +33,28 @@ namespace Oritasy
         private static readonly FieldInfo TurbofanStaticThrust =
             AccessTools.Field(typeof(Turbofan), "staticThrust");
 
+        private static readonly FieldInfo TurbineOperable =
+            AccessTools.Field(typeof(TurbineEngine), "operable");
+
         internal static bool ShouldAssist(Aircraft ac)
         {
             if (ac == null)
                 return false;
-            if (BeginnerAssist.ForceHighAltThrust(ac))
-                return true;
             if (!IsLocalAircraft(ac))
                 return false;
+            if (BeginnerAssist.ForceHighAltThrust(ac))
+                return true;
             if (AirframeWearService.HighAltActive())
                 return true;
-            return HighAltEngineMathService.AltitudeWarrantsAssist(ac.radarAlt);
+            if (HighAltEngineMathService.AltitudeWarrantsAssist(ac.radarAlt))
+                return true;
+            try
+            {
+                if (AircraftIdentity.IsVl49(AircraftIdentity.GetKey(ac)) && ac.radarAlt >= 8000f)
+                    return true;
+            }
+            catch { }
+            return false;
         }
 
         private static Aircraft _localAircraft;
@@ -79,7 +90,10 @@ namespace Oritasy
             if (ac == null)
                 return;
             bool force = BeginnerAssist.ForceHighAltThrust(ac);
-            float floor = HighAltEngineMathService.DensityFloor(minDensity, force);
+            bool tilt = false;
+            try { tilt = AircraftIdentity.IsVl49(AircraftIdentity.GetKey(ac)); }
+            catch { }
+            float floor = HighAltEngineMathService.DensityFloor(minDensity, force, tilt);
             try
             {
                 if (ac.airDensity < floor)
@@ -236,6 +250,64 @@ namespace Oritasy
                 if (want <= 0f)
                     return;
                 BoostThrust(TurbofanThrust, __instance, want);
+            }
+        }
+
+        [HarmonyPatch(typeof(TurbineEngine), "Update")]
+        private static class Patch_TurbineEngine_HighAlt
+        {
+            [HarmonyPrefix]
+            private static void Prefix(TurbineEngine __instance)
+            {
+                if (__instance == null)
+                    return;
+                Aircraft ac = null;
+                try { ac = __instance.aircraft; }
+                catch { }
+                if (!ShouldAssist(ac))
+                    return;
+                if (!AirframeWearService.EngineShouldProduceThrust(__instance))
+                    return;
+                FloorDensity(ac, 0.22f);
+                ForceOperable(TurbineOperable, __instance);
+            }
+
+            [HarmonyPostfix]
+            private static void Postfix(TurbineEngine __instance)
+            {
+                if (__instance == null)
+                    return;
+                Aircraft ac = null;
+                try { ac = __instance.aircraft; }
+                catch { }
+                if (!IsLocalAircraft(ac))
+                    return;
+                if (!AirframeWearService.EngineShouldProduceThrust(__instance))
+                    return;
+                if (!ShouldAssist(ac))
+                    return;
+                if (ReverseThrustService.SignedThrottle() < 0f)
+                    return;
+
+                float throttle = 0f;
+                try { throttle = __instance.throttle; }
+                catch { }
+                if (throttle < 0.01f)
+                    throttle = ReadThrottle(ac);
+                float maxP = 0f;
+                try { maxP = __instance.maxPower; }
+                catch { }
+                float want = HighAltEngineMathService.ThrustWant(
+                    maxP, throttle, BeginnerAssist.ForceHighAltThrust(ac),
+                    AirframeWearService.HighAltActive());
+                if (want <= 0f)
+                    return;
+                try
+                {
+                    if (__instance.currentPower < want)
+                        __instance.currentPower = want;
+                }
+                catch { }
             }
         }
     }

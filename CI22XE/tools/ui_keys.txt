@@ -1,0 +1,484 @@
+﻿Accept game Invite?
+ACCESSIBILITY
+Active AI aircraft
+ACTIVITY SETTINGS
+Add AI Aircraft per enemy Player
+Add Restricted Unit
+Add Supply Unit
+Additional airframes reserved per player
+Additional Lights
+Aircraft
+Aircraft Livery
+Aircraft Skill Multiplier
+AIRCRAFT V
+AIRFRAMES
+Airframes to keep in reserve
+Airspeed
+ALL
+Allow Controller Menu Navigation
+Allow Event Content
+Allow Player Respawn
+Altitude
+Anisotropic Filtering
+Anti-Aliasing (MSAA)
+ANTI-GRAV
+AoA
+Apply Brakes
+AUDIO
+AUDIO SETTINGS
+Auto Center
+Auto Save
+Auto Save Settings
+Automatic camera NVG
+Auto-Purge After
+Auto-Save Frequency
+Axis
+Axis Modifier
+B25MITCH
+Banned
+Base Pitch Damping
+BDF
+BINDING SETTINGS
+BLD
+Block Lists
+Blocked
+Boscali
+Brake Axis
+Building
+Button
+Button Click Delay (0.25)
+Button Hold Delay (0.5)
+Buttons
+BUY
+Buy {Airframe} ?
+Camera Controls
+Camera Jump
+Camera Start Position
+Cancel
+Cancel Chat
+Can't edit both factions because supplies are not equal
+Can't edit both factions because values are not equal
+Category
+Center Stabilization
+Center View
+CHANGE NOTES (OPTIONAL)
+Changing this will rename the project folder
+Chat
+Chat Enabled
+CHAT SETTINGS
+Cinematic Mode
+Circle
+CLEAR FILTER
+climbRate
+Close
+CLOSE WORKSHOP
+Cloud Height
+Clouds Detail
+Cockpit camera inertia
+Cockpit Field of View
+COLLECTIVE
+Color
+COMMON SETTINGS
+Conditions
+Confirm
+Confirm Action
+Contribution Amount
+CONTROLS
+Copy Error
+Counter
+Countermeasures
+Create Default
+Create Manual Save
+CREATE NEW
+Custom Axis 1
+Custom Axis 1 Down
+Custom Axis 1 Up
+Debug
+Debug Visualizations
+Decrease FoV
+Decrease Throttle
+Default
+Defaults
+Delete
+Delete Unit
+DESCRIPTION
+Discard and Exit
+Discord Rich Presence
+DISPLAY SETTINGS
+Distance to hide HMD
+Distribute Excess Funds
+DONATE
+DONATE TO THE WAR EFFORT
+Done
+Effects Volume
+Eject
+Empty
+Enemy
+Enter Lobby Password
+Enter text...
+Environment
+ENVIRONMENT & LIGHTING
+Environment Settings
+Escalation Co-op as BDF
+Escalation Status
+Exit
+Exit Mission Editor?
+External Field of View
+Eye Tracking Responsiveness
+Eye VS Head Tracking Ratio
+Faction
+Faction Settings
+Faction Starting Balance
+Factions
+Failed to load
+Field of View
+File
+FILTERS
+Fire
+Flight Controls
+FLY >
+Focus Unit
+Free Flight
+Free Look
+Friendly
+FUEL
+FUNDS
+Game
+GAMEPLAY
+Gear Trim
+gForce
+Give away
+GLOBAL CONTROL SETTINGS
+gMax
+GND
+Graph
+GRAPHICS
+Grass
+Green
+GROUND FORCES
+Group
+Head Tracking Pitch & Yaw Sensitivity
+Head Tracking Position Sensitivity
+Head Tracking Roll Sensitivity
+Heartland
+Height
+HMD SETTINGS
+HMD Text Size
+HUD
+HUD SETTINGS
+HUD Text Size
+Ignus Archipelago
+Ignus Archipelago | Mountain Pass
+Increase FoV
+Increase Throttle
+Interface Volume
+Invert Pitch for View Controls
+Invert Throttle Control when used as Collective
+Invert Virtual Joystick Pitch
+Item
+Item Type
+Jammed Noise
+Join Lobby
+Joinable Factions
+Joining Server...
+Jump to Enemy Aircraft
+Kicked
+Kill Reward Multiplier
+Label
+Landing Camera
+Last Modified
+Lead
+Leave and Join
+Link Guns
+Livery
+Load
+Load Mission
+Load More
+LOADING
+Loading...
+Lobby Password
+Local
+LOD Distance
+Look At Enemy Aircraft
+Look At Target
+LOWER GEAR
+m_CaretBlinkRate: 0.85
+m_isRightToLeft: 0
+Main Mission File • Last saved 2h ago
+Map
+Master Volume
+Max Auto Saves
+Max Number of Wrecks
+Max Response Airspeed
+Max Response Rate
+Maximum FPS
+Menu Volume
+Metric
+Min Rank [2]
+Minimum Rank
+Minimum Value
+Missile Alert
+Mission
+Mission Description
+Mission Editor
+Mission Name
+Mission Name <color=orange>(Unsaved)</color>
+Mission Parameters
+Mission Save History
+Mission Summary
+Mission Title
+Missions
+Moon Phase
+Mouse
+Move Backward
+Move Down
+Move Forward
+Move Lateral
+Move Left
+Move Longitudinal
+Move Map Down
+Move Map Horizontal
+Move Map Left
+Move Map Right
+Move Map Up
+Move Map Vertical
+Move Right
+Move To Position
+Move Up
+Move Vertical
+MSC
+MSL
+Multiplayer
+Munitions
+Music Volume
+Muted
+NAME
+NAV
+Need preview
+NEW
+New Mission
+NEXT >
+Next Countermeasure
+Next Weapon
+No Mission Name
+No Moon
+None
+NON-NUCLEAR
+NOT FOUND
+NOZZLE 45
+Number of Lines
+Objectives
+Open Chat
+Open Control Bindings Menu
+OPEN ITEM
+OPEN LOCAL
+Open Radial Menu
+OPEN STEAM
+Open User Folder
+Open Weapon Wheel
+OPEN WORKSHOP
+Optical
+Option A
+ORDER
+Overall
+Overlay Text Size
+OVERSPEED
+OWNER
+PALA
+Pan Left
+Pan Right
+Pan View
+Parameters
+password
+Pause
+Pitch Axis
+Pitch Down
+Pitch Trim Limit
+Pitch Trim Rate
+Pitch Up
+placeholder
+Play
+Player
+Player Allocation on Join
+Player Mode
+Player Regular Income
+Player Starting Rank
+Player0
+Position
+Prevent Players Donating Vehicles
+Prevent Players Joining Faction
+Preview (click to change)
+Previous Weapon
+Primeva
+PRIMEVA ARMED LIBERATION ALLIANCE
+Profanity filter
+Profile
+PUBLIC
+QUALITY SETTINGS
+Radar Warning
+radarAlt
+Radial Menu
+Radial Menu Down
+Radial Menu Horizontal
+Radial Menu Left
+Radial Menu Right
+Radial Menu Up
+Radial Menu Vertical
+Random
+RANK 4 [76.8]
+Recent Saves
+Reduce AI Aircraft per friendly player
+REDUCE COLLECTIVE
+REFRESH
+Remove
+Rename
+Rename and Overwrite!!
+Request
+REQUISITION
+Reserve aircraft from your faction's inventory
+Reset Graphics Settings
+Restrict Aircraft
+Restrict Weapon
+Restricted Aircraft
+Restricted Weapons
+Restrictions
+RETRY
+Roads
+Roll Axis
+Roll Left
+Roll Right
+Rotate Unit Mode
+Rotation
+RPM 285
+Save
+Save and Exit
+Save As
+Save As Copy
+Save As Copy and Overwrite!!
+Save Complete
+Save Error
+SCN
+Score Rank Multiplier
+SCREEN RESOLUTION
+Select Unit Mode
+SELL
+Set From Current
+SETTINGS
+Shadow Distance
+SHADOWS QUALITY
+Ships
+Show HitMarkers
+SHP
+Side panels position
+SimulatedThrottle
+Single
+Single Player
+SINGLEPLAYER
+SOCIAL
+Soft Shadows
+SOUTH BOSCALI GENERAL AVIATION
+Spectate Previous Aircraft
+STALL WARNING
+Starting Nuclear Warheads
+Starting Supply
+Steam Rich Presence
+Strategic Nuclear Threshold
+Stuck
+Submit Chat
+SUBSCRIBE
+SubVersion Title
+Successful Sortie Bonus
+Surface Units Skill Multiplier
+Switch View
+System
+T/A-30 COMPASS
+Tac Screen
+TacScreen always IR
+Tactical Nuclear Threshold
+Target Cancel
+Target Padlock
+Target Select
+Test TTS Speed
+Text To Speech Enabled
+Text To Speech Speed
+Text To Speech Volume
+TEXTURE QUALITY
+THEME
+THEME SETTINGS
+THROTTLE
+Throttle Axis
+Tilt Down
+Tilt Up
+Tilt View
+Time
+Time displayed on HUD
+Time Factor
+Time of Day
+Title
+Tobii Eye Tracker Settings
+Toggle debug graphs
+Toggle Engine
+Toggle Flight Assist
+Toggle Gear
+Toggle Left Panel
+Toggle Map
+Toggle mission debug menu
+Toggle Navigation Lights
+Toggle Night Vision
+Toggle performance numbers
+Toggle Radar
+Toggle Slow Motion
+Toggle Turret Control
+TOP
+Top panel position
+Translate Unit Mode
+Tree Distance
+TRENDING
+Unable to reserve from faction's inventory
+Unit Icon Size
+UNIT SYTEM
+Units
+Units, Map & Color Codes
+Untitled Mission
+UPDATE
+UPDATE ALL
+UPLOAD
+UPLOADING
+Use Head Tracker inputs for cockpit camera
+Use Throttle Axis Negative Region
+Use Throttle Relative Axis
+Use Virtual Joystick (Mouse Flight Controls)
+User
+user name or ban comment
+value
+Vehicles
+Velocity Pitch Damping
+View Motion Sensitivity (0.5)
+View Smoothing (0.5)
+Virtual Joystick Centering Force (0.0)
+Virtual Joystick Sensitivity (0.5)
+Virtual MFD
+VORTEX RING STATE
+Vote Kick No
+Vote Kick Yes
+VSync
+VTOL
+Warheads to keep in reserve
+Weapon
+Weapon Safety Lock while Map Maximized
+Weapons
+Width
+Wind Direction
+Wind Speed
+Wind Turbulence
+Windowed Display
+WING 45
+WORKSHOP
+Wrecks Despawn Time
+Yaw Axis
+Yaw Left
+Yaw Right
+Zoom In
+Zoom in on Boresight Targets
+Zoom Out
+Zoom View

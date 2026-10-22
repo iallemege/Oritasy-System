@@ -31,17 +31,19 @@ namespace Oritasy
 
         internal static void Draw()
         {
-            if (!_overlayOn)
-                return;
             if (!Plugin.AllowThirdPersonUi)
                 return;
-            if (Plugin.ShowAircraftChaseHud != null && !Plugin.ShowAircraftChaseHud.Value)
-                return;
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
                 return;
             if (Event.current != null && Event.current.type != EventType.Repaint)
                 return;
             if (!IsAircraftTailChase())
+                return;
+
+            bool chase = _overlayOn
+                && (Plugin.ShowAircraftChaseHud == null || Plugin.ShowAircraftChaseHud.Value);
+            bool stick = StickDisplayOn();
+            if (!chase && !stick)
                 return;
 
             Aircraft ac = null;
@@ -55,7 +57,19 @@ namespace Oritasy
 
             EnsureStyles();
             Rect view = new Rect(0f, 0f, UiScaleService.Width, UiScaleService.Height);
-            DrawHud(view, cam, ac);
+            if (chase)
+                DrawHud(view, cam, ac);
+            if (stick)
+                DrawStickThrottlePanel(ac);
+        }
+
+        private static bool StickDisplayOn()
+        {
+            if (Plugin.ShowStickDisplay != null)
+                return Plugin.ShowStickDisplay.Value;
+            if (HudPackState.ShowStickDisplay != null)
+                return HudPackState.ShowStickDisplay.Value;
+            return true;
         }
 
         private static Camera ResolveViewCamera()
@@ -105,6 +119,8 @@ namespace Oritasy
                 CameraStateManager csm = SceneSingleton<CameraStateManager>.i;
                 if (csm != null)
                 {
+                    if (object.ReferenceEquals(csm.currentState, csm.cockpitState))
+                        return false;
                     if (object.ReferenceEquals(csm.currentState, csm.chaseState))
                         return FollowingLocalOrUnset(csm, local);
                     if (object.ReferenceEquals(csm.currentState, csm.orbitState))
@@ -227,7 +243,6 @@ namespace Oritasy
             GUI.DrawTexture(new Rect(strip.x + 100f, strip.y - 12f, 12f, 6f), Texture2D.whiteTexture);
             GUI.color = prev;
 
-            DrawStickThrottlePanel(ac);
             PlayerAutopilot.DrawChaseAlerts(ac);
         }
 

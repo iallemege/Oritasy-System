@@ -54,8 +54,8 @@ namespace Oritasy
         private const string F3TipPrefKey = "Oritasy.FirstMissionF3Tip.v1";
 
         private static bool _menuOpen;
-        private static bool _guardianOn = true;
-        private static bool _terrainOn = true;
+        private static bool _guardianOn;
+        private static bool _terrainOn;
 
         /// <summary>F1 / config: auto-clear TerrainAvoidance on gear up / gear-down-locked.</summary>
         internal static ConfigEntry<bool> AutoDisableTerrainOnGear
@@ -112,7 +112,28 @@ namespace Oritasy
 
         internal static bool BlocksControls
         {
-            get { return _takeoff != TakeoffPhase.Idle; }
+            get
+            {
+                if (_takeoff == TakeoffPhase.Idle)
+                    return false;
+                if (!PlayerVanillaTakeoff.IsActive)
+                {
+                    _takeoff = TakeoffPhase.Idle;
+                    _takeoffDetail = "";
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        internal static void FailsafeReleaseControls(string reason)
+        {
+            if (_takeoff != TakeoffPhase.Idle || PlayerVanillaTakeoff.IsActive)
+                ClearTakeoff();
+            if (_guardianHoldActive || _boostCaptured)
+                EndGuardianHold(null, false);
+            if (!string.IsNullOrEmpty(reason) && Plugin.Log != null)
+                Plugin.Log.LogInfo("Assist failsafe: " + reason);
         }
 
         /// <summary>
@@ -149,7 +170,7 @@ namespace Oritasy
                 "Auto-takeoff climb target AGL (m).");
             _guardianDefault = config.Bind("BeginnerAssist", "CrashGuardian", true,
                 "Auto-engage AP when about to crash.");
-            _terrainDefault = config.Bind("BeginnerAssist", "TerrainAvoidance", true,
+            _terrainDefault = config.Bind("BeginnerAssist", "TerrainAvoidance", false,
                 "Terrain closure pull-up / AP engage (F3 Terrain avoidance).");
             _autoDisableTerrainOnGear = config.Bind("BeginnerAssist", "AutoDisableTerrainOnGear", true,
                 "Auto turn OFF TerrainAvoidance before gear retract and after gear locked down. Yields during F2 LAND AP.");
@@ -167,6 +188,15 @@ namespace Oritasy
                 _guardianCooldown.Value = 2.5f;
             if (_guardianHandback != null && Mathf.Abs(_guardianHandback.Value - 3f) < 0.05f)
                 _guardianHandback.Value = 2f;
+            // 260C: restore Crash Guardian purpose — previous SafetyDefaultsOffOnce forced it OFF.
+            ConfigEntry<bool> guardianRestoreOnce = config.Bind("BeginnerAssist", "GuardianPurposeRestoreOnce", false,
+                "Internal: one-shot re-enable CrashGuardian after perf-era factory-off.");
+            if (guardianRestoreOnce != null && !guardianRestoreOnce.Value)
+            {
+                guardianRestoreOnce.Value = true;
+                if (_guardianDefault != null)
+                    _guardianDefault.Value = true;
+            }
             _guardianOn = _guardianDefault != null && _guardianDefault.Value;
             _terrainOn = _terrainDefault != null && _terrainDefault.Value;
         }
@@ -199,7 +229,7 @@ namespace Oritasy
                 return;
             }
 
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
             {
                 if (_takeoff != TakeoffPhase.Idle)
                     ClearTakeoff();
@@ -229,12 +259,26 @@ namespace Oritasy
         {
             if (_enabled == null || !_enabled.Value)
                 return;
-            if (_f3TipOpen || MissileCameraHud.ManualActive)
+            if (_f3TipOpen || HudPackState.ManualActive)
+                return;
+            // CrashGuardian/Terrain off and no takeoff: nothing to do every physics tick.
+            if (!_guardianOn && !_terrainOn && _takeoff == TakeoffPhase.Idle
+                && !PlayerVanillaTakeoff.IsActive && !_guardianHoldActive && !_boostCaptured)
                 return;
 
             Aircraft ac = ResolveLocal();
             if (ac == null)
+            {
+                if (_takeoff != TakeoffPhase.Idle || PlayerVanillaTakeoff.IsActive
+                    || _guardianHoldActive || _boostCaptured)
+                    FailsafeReleaseControls("no local aircraft");
                 return;
+            }
+            if (_takeoff != TakeoffPhase.Idle && !PlayerVanillaTakeoff.IsActive)
+                FailsafeReleaseControls("takeoff phase desync");
+            if (_guardianHoldActive && _guardianHandbackAt > 0f
+                && Time.unscaledTime >= _guardianHandbackAt + 6f)
+                EndGuardianHold(ac, true);
             if (_takeoff != TakeoffPhase.Idle)
                 return;
             if (AerialResupply.IsActive)
@@ -399,7 +443,7 @@ namespace Oritasy
             Aircraft ac = ResolveLocal();
             if (ac == null && !_menuOpen)
                 return;
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
                 return;
 
             if (Plugin.AllowThirdPersonUi)
@@ -496,13 +540,13 @@ namespace Oritasy
             GUI.color = Color.white;
 
             GUI.Label(new Rect(box.x + 18f, box.y + 14f, box.width - 36f, 28f),
-                UiLang.T("Beginner Assist", "新手辅助"), _titleStyle);
+                UiLang.T("Anti-crash system", "防坠机系统"), _titleStyle);
             GUI.Label(new Rect(box.x + 18f, box.y + 52f, box.width - 36f, 100f),
                 UiLang.T(
-                    "You can press F3 to open Beginner mode.\n\n"
+                    "You can press F3 to open the anti-crash system.\n\n"
                     + "Auto takeoff / land, crash guardian, and terrain avoidance "
                     + "help you stay alive while learning the aircraft.",
-                    "可按 F3 打开新手模式。\n\n"
+                    "可按 F3 打开防坠机系统。\n\n"
                     + "自动起飞/着陆、防坠毁与地形规避，帮助你在熟悉机型时保持安全。"),
                 _labelStyle);
 
@@ -516,7 +560,7 @@ namespace Oritasy
 
         private static void OpenMenu()
         {
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
                 return;
             if (AircraftManeuverGui.IsOpen)
                 AircraftManeuverGui.Close();
@@ -524,8 +568,8 @@ namespace Oritasy
                 PlayerAutopilot.CloseMenuFromOutside();
             if (AerialResupply.MenuOpen)
                 AerialResupply.CloseMenuFromOutside();
-            if (WarThunderRwrHud.LayoutMenuOpen)
-                WarThunderRwrHud.CloseLayoutMenuFromOutside();
+            if (HudPackState.LayoutMenuOpen)
+                HudPackState.CloseRwr();
             if (IlsSettingsMenu.MenuOpen)
                 IlsSettingsMenu.CloseMenuFromOutside();
             if (PrivateMessageMenu.MenuOpen)
@@ -534,7 +578,7 @@ namespace Oritasy
                 KillChoiceMenu.CloseMenuFromOutside();
             if (HostFundMenu.MenuOpen)
                 HostFundMenu.CloseMenuFromOutside();
-            AirframeWearGui.CloseFromOutside();
+            HudPackState.CloseWear();
             PlayerAutopilot.CloseWeXonSupportMenu();
             _menuOpen = true;
             CaptureCursor();
@@ -599,7 +643,7 @@ namespace Oritasy
             GUI.color = Color.white;
 
             GUI.Label(new Rect(box.x + 16f, box.y + 12f, box.width - 32f, 26f),
-                UiLang.T("BEGINNER ASSIST  (F3)", "新手辅助（F3）"), _titleStyle);
+                UiLang.T("ANTI-CRASH SYSTEM  (F3)", "防坠机系统（F3）"), _titleStyle);
             GUI.Label(new Rect(box.x + 16f, box.y + 40f, box.width - 32f, 18f),
                 UiLang.T("Auto takeoff · crash & terrain safety  (land = F2)",
                     "自动起飞 · 防坠毁与地形安全（着陆用 F2）"), _labelStyle);

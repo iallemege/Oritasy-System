@@ -1,10 +1,11 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace Oritasy
 {
     /// <summary>
     /// Greenfield crash-threat classifier (0.0.9.57).
-    /// Pure sensing → kind/reason/hold targets; BeginnerAssist still owns engage/handback.
+    /// Pure sensing — kind/reason/hold targets; BeginnerAssist still owns engage/handback.
+    /// 263C: intentional high-AoA stick pull must NOT trip PostStall (that fought the stick → shake).
     /// </summary>
     internal static class CrashThreatClassifier
     {
@@ -56,6 +57,20 @@ namespace Oritasy
             float tti = ralt > 0.5f && sink > 2f ? ralt / sink : 999f;
             bool highAlt = ralt >= 2500f;
 
+            // Hard aft stick at usable energy = BFM pull, not a departure.
+            float pitchCmd = 0f;
+            try
+            {
+                ControlInputs ci = ac != null ? ac.GetInputs() : null;
+                if (ci != null)
+                    pitchCmd = ci.pitch;
+            }
+            catch { }
+            bool intentionalPull = pitchCmd <= -0.45f
+                && speed >= corner * 0.72f
+                && sink < Mathf.Max(18f, sinkTrigger * 0.55f)
+                && aoa < stallAoa * 1.22f;
+
             if (guardianOn)
             {
                 if (ralt > 1f
@@ -63,7 +78,8 @@ namespace Oritasy
                     && (Mathf.Abs(yawRate) >= spinYawRate * (fallingLeaf ? 0.45f : 0.82f)
                         || fallingLeaf)
                     && aoa > stallAoa * (fallingLeaf ? 0.38f : 0.55f)
-                    && speed < corner * (highAlt ? 1.4f : 1.2f))
+                    && speed < corner * (highAlt ? 1.4f : 1.2f)
+                    && !intentionalPull)
                 {
                     r.Kind = Kind.Spin;
                     r.Reason = fallingLeaf ? "FALLING LEAF" : (highAlt ? "HIGH-ALT SPIN" : "SPIN");
@@ -73,11 +89,14 @@ namespace Oritasy
                     r.Kind = Kind.InvertDive;
                     r.Reason = "INVERT DIVE";
                 }
-                else if (aoa >= stallAoa * (highAlt ? 0.75f : 0.9f)
+                else if (!intentionalPull
+                    && aoa >= stallAoa * (highAlt ? 0.92f : 1.02f)
                     && ralt > 12f
                     && (ralt < postStallAgl || highAlt)
-                    && speed < corner * (highAlt ? 1.1f : 1.0f))
+                    && speed < corner * (highAlt ? 0.95f : 0.78f)
+                    && (sink > Mathf.Max(8f, sinkTrigger * 0.35f) || speed < corner * 0.62f))
                 {
+                    // Real mush / departure: deep AoA + soft energy + sink (or very slow).
                     r.Kind = Kind.PostStall;
                     r.Reason = highAlt ? "HIGH-ALT STALL" : "POST-STALL";
                 }

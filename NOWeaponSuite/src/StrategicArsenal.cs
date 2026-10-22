@@ -61,6 +61,12 @@ namespace WeXon
         private static CursorLockMode _prevLock;
         private static bool _prevCursorVisible;
         private static bool _cursorHeld;
+        // 258C: reuse hostile scan buffer (spawn-time only; no feature cut).
+        private static readonly List<Unit> HostileScratch = new List<Unit>(64);
+        private static bool _tpUiCached;
+        private static float _nextTpUiAt;
+        private static PropertyInfo _tpUiProp;
+        private static bool _tpUiPropResolved;
         // Below top-center "Oritasy System" brand (y≈8, h≈26)
         private const float SelectionHudY = 78f;
 
@@ -201,9 +207,17 @@ namespace WeXon
             if (_enabled == null || !_enabled.Value)
                 return;
 
-            // Tip-stack reminder that F9 killstreak reward menu exists (in-flight / local human)
-            if (IsLocalHumanReadyCached() && OritasyAllowsThirdPersonUi())
+            
+            // Tip-stack reminder: never SoftSkip-gate (at ~20 FPS SoftSkipMs=50 flashes the chip).
+            if (IsLocalHumanReadyCached()
+                && OritasyAllowsThirdPersonUi())
                 DrawCornerHint();
+
+            // 258C: full features stay ON — never LowEnd/IsLow-disable F9 arsenal.
+            // Idle early-out when menu closed / no HUD toast after tip already drawn.
+            bool hudAlive = !string.IsNullOrEmpty(_hudMsg) && Time.unscaledTime <= _hudUntil;
+            if (!_menuOpen && !hudAlive && ArsenalHitchPolishSkip())
+                return;
 
             if (_menuOpen)
             {
@@ -576,10 +590,55 @@ namespace WeXon
             return CornerStackTopY() + slot * (chipH + 3f);
         }
 
+        
+        /// <summary>258C: hitch SoftSkip/Recover only — never IsLow feature cut.</summary>
+        private static bool ArsenalHitchPolishSkip()
+        {
+#if ORITASY_COMBINED
+            return Oritasy.PerfFrameGate.Recovering || Oritasy.PerfFrameGate.SoftSkipping;
+#else
+            return false;
+#endif
+        }
+
+        private static bool OritasyAllowsThirdPersonUi()
+        {
+            if (Time.unscaledTime < _nextTpUiAt)
+                return _tpUiCached;
+            _nextTpUiAt = Time.unscaledTime + 1f;
+            try
+            {
+                if (!_tpUiPropResolved)
+                {
+                    _tpUiPropResolved = true;
+                    Type ty = Type.GetType("Oritasy.Plugin, Oritasy") ?? Type.GetType("Oritasy.Plugin");
+                    if (ty != null)
+                    {
+                        _tpUiProp = ty.GetProperty("AllowThirdPersonUi",
+                            BindingFlags.Static
+                            | BindingFlags.Public
+                            | BindingFlags.NonPublic);
+                    }
+                }
+                if (_tpUiProp == null)
+                {
+                    _tpUiCached = true;
+                    return true;
+                }
+                _tpUiCached = (bool)_tpUiProp.GetValue(null, null);
+                return _tpUiCached;
+            }
+            catch
+            {
+                _tpUiCached = true;
+                return true;
+            }
+        }
         private static void CloseOtherModMenus()
         {
             TryInvokeStatic("Oritasy.PlayerAutopilot", "CloseMenuFromOutside");
             TryInvokeStatic("Oritasy.AerialResupply", "CloseMenuFromOutside");
+            TryInvokeStatic("Oritasy.HudPackState", "CloseRwr");
             TryInvokeStatic("Oritasy.WarThunderRwrHud", "CloseLayoutMenuFromOutside");
             TryInvokeStatic("Oritasy.AircraftManeuverGui", "Close");
             TryInvokeStatic("Oritasy.BeginnerAssist", "CloseMenuFromOutside");
@@ -587,32 +646,21 @@ namespace WeXon
             TryInvokeStatic("Oritasy.PrivateMessageMenu", "CloseMenuFromOutside");
             TryInvokeStatic("Oritasy.KillChoiceMenu", "CloseMenuFromOutside");
             TryInvokeStatic("Oritasy.HostFundMenu", "CloseMenuFromOutside");
+            TryInvokeStatic("Oritasy.HudPackState", "CloseWear");
             TryInvokeStatic("Oritasy.AirframeWearGui", "CloseFromOutside");
-        }
-
-        private static bool OritasyAllowsThirdPersonUi()
-        {
-            try
-            {
-                Type t = Type.GetType("Oritasy.Plugin, Oritasy") ?? Type.GetType("Oritasy.Plugin");
-                if (t == null)
-                    return true;
-                System.Reflection.PropertyInfo p = t.GetProperty("AllowThirdPersonUi",
-                    System.Reflection.BindingFlags.Static
-                    | System.Reflection.BindingFlags.Public
-                    | System.Reflection.BindingFlags.NonPublic);
-                if (p == null)
-                    return true;
-                return (bool)p.GetValue(null, null);
-            }
-            catch { return true; }
         }
 
         private static void TryInvokeStatic(string typeName, string method)
         {
             try
             {
-                Type t = Type.GetType(typeName + ", Oritasy") ?? Type.GetType(typeName);
+                Type t = Type.GetType(typeName + ", Oritasy")
+                    ?? Type.GetType(typeName + ", Oritasy_0.0.9.202C")
+                    ?? Type.GetType(typeName + ", Oritasy_0.0.9.201C")
+                    ?? Type.GetType(typeName + ", Oritasy_0.0.9.200C")
+                    ?? Type.GetType(typeName + ", Oritasy_0.0.9.199C")
+                    ?? Type.GetType(typeName + ", OritasyHud")
+                    ?? Type.GetType(typeName);
                 if (t == null)
                     return;
                 System.Reflection.MethodInfo m = t.GetMethod(method,
@@ -999,9 +1047,77 @@ namespace WeXon
             catch { return Vector3.zero; }
         }
 
+        
+        private static float[] s_arsCx = new float[64];
+        private static float[] s_arsCy = new float[64];
+        private static float[] s_arsCz = new float[64];
+        private static float[] s_arsScore = new float[64];
+        private static int[] s_arsOrder = new int[64];
+        private static Unit[] s_arsUnits = new Unit[64];
+
+        private static void RankHostilesByDistance(List<Unit> list, Vector3 origin)
+        {
+            if (list == null || list.Count <= 1)
+                return;
+            int n = list.Count;
+            if (s_arsUnits.Length < n)
+            {
+                System.Array.Resize(ref s_arsCx, n);
+                System.Array.Resize(ref s_arsCy, n);
+                System.Array.Resize(ref s_arsCz, n);
+                System.Array.Resize(ref s_arsScore, n);
+                System.Array.Resize(ref s_arsOrder, n);
+                System.Array.Resize(ref s_arsUnits, n);
+            }
+            float ox = origin.x, oy = origin.y, oz = origin.z;
+            for (int i = 0; i < n; i++)
+            {
+                Unit u = list[i];
+                s_arsUnits[i] = u;
+                Vector3 p = u != null ? u.transform.position : origin;
+                s_arsCx[i] = p.x;
+                s_arsCy[i] = p.y;
+                s_arsCz[i] = p.z;
+            }
+#if ORITASY_COMBINED
+            Oritasy.MtPureMathBatch.FillScores(n, s_arsScore, (start, end) =>
+            {
+                for (int i = start; i < end; i++)
+                    s_arsScore[i] = StrategicArsenalMathService.DistanceScore(
+                        ox, oy, oz, s_arsCx[i], s_arsCy[i], s_arsCz[i]);
+            });
+            Oritasy.MtPureMathBatch.ArgsortAscending(s_arsScore, n, s_arsOrder);
+#else
+            for (int i = 0; i < n; i++)
+            {
+                s_arsScore[i] = StrategicArsenalMathService.DistanceScore(
+                    ox, oy, oz, s_arsCx[i], s_arsCy[i], s_arsCz[i]);
+                s_arsOrder[i] = i;
+            }
+            for (int i = 1; i < n; i++)
+            {
+                int keyIdx = s_arsOrder[i];
+                float key = s_arsScore[keyIdx];
+                int j = i - 1;
+                while (j >= 0 && s_arsScore[s_arsOrder[j]] > key)
+                {
+                    s_arsOrder[j + 1] = s_arsOrder[j];
+                    j--;
+                }
+                s_arsOrder[j + 1] = keyIdx;
+            }
+#endif
+            list.Clear();
+            for (int i = 0; i < n; i++)
+            {
+                Unit u = s_arsUnits[s_arsOrder[i]];
+                if (u != null)
+                    list.Add(u);
+            }
+        }
         private static List<Unit> CollectHostiles(Unit owner, Vector3 origin, float radius)
         {
-            List<Unit> list = new List<Unit>();
+            List<Unit> list = HostileScratch; list.Clear();
             List<Unit> all = UnitRegistry.allUnits;
             if (all == null || owner == null)
                 return list;
@@ -1020,6 +1136,7 @@ namespace WeXon
                     continue;
                 list.Add(u);
             }
+            RankHostilesByDistance(list, origin);
             return list;
         }
 

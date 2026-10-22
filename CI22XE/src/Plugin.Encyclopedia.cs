@@ -78,16 +78,20 @@ namespace Oritasy
             Encyclopedia enc = GetEncyclopedia();
             if (enc == null || enc.aircraft == null)
                 return;
+            try { XeFleetCloneService.EnsureAll(); }
+            catch { }
             for (int i = 0; i < enc.aircraft.Count; i++)
             {
                 AircraftDefinition def = enc.aircraft[i];
                 if (def == null)
                     continue;
                 TryRenameDefinition(def);
-                // Veyrn lore is written by UnitBrandingService.ApplyBrandFields — do not
-                // re-prefix [Oritasy] / short blurb over the full encyclopedia story.
-                if (IsXeDefinition(def))
-                    EncyclopediaBrandService.UpdateLookup(def);
+                AircraftDefinition live = XeFleetCloneService.ResolveLive(def);
+                if (live != null && !object.ReferenceEquals(live, def))
+                    enc.aircraft[i] = live;
+                UnitBrandingService.XeBrand branded;
+                if (IsXeDefinition(live) || UnitBrandingService.TryResolveBrand(live, out branded))
+                    EncyclopediaBrandService.UpdateLookup(live);
             }
         }
 

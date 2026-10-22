@@ -12,7 +12,7 @@ namespace Oritasy
         internal static float TierMul(NukeResist.Tier tier, bool buildingHalfResist, bool navalTripleResist)
         {
             if (tier == NukeResist.Tier.Building)
-                return buildingHalfResist ? 2f : 1f;
+                return 1f;
             if (tier == NukeResist.Tier.Ship)
                 return navalTripleResist ? (1f / 3f) : 2f;
             if (tier == NukeResist.Tier.Vehicle)

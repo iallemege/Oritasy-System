@@ -40,7 +40,11 @@ namespace Oritasy
 
         internal static bool Enabled
         {
-            get { return Plugin.EnhanceStatusDisplay == null || Plugin.EnhanceStatusDisplay.Value; }
+            get
+            {
+                return Plugin.AllowThirdPersonUi
+                    && (Plugin.EnhanceStatusDisplay == null || Plugin.EnhanceStatusDisplay.Value);
+            }
         }
 
         internal static void Apply(StatusDisplay sd)

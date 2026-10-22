@@ -142,6 +142,8 @@ namespace Oritasy
         {
             if (!IsOn() || !_hasCurrent)
                 return;
+            if (WsoCrewOps.BlocksRadio)
+                return;
             if (OritasyPresentation.SplashActive)
                 return;
             if (Event.current != null && Event.current.type != EventType.Repaint)
@@ -185,6 +187,33 @@ namespace Oritasy
             GUI.color = Color.white;
             GUI.Label(new Rect(x + 16f, y + 4f, w - 24f, 18f), _current.Callsign, _callStyle);
             GUI.Label(new Rect(x + 16f, y + 22f, w - 24f, 30f), "\"" + _current.Quote + "\"", _quoteStyle);
+            GUI.color = prev;
+        }
+
+        internal static void DrawCrewPrompt(string callsign, string quote, bool yesNo)
+        {
+            if (Event.current != null && Event.current.type != EventType.Repaint)
+                return;
+            EnsureStyles();
+            float w = Mathf.Clamp(UiScaleService.Width * 0.48f, 420f, 720f);
+            float h = yesNo ? 84f : 58f;
+            float x = (UiScaleService.Width - w) * 0.5f;
+            float y = UiScaleService.Height * 0.74f;
+            Color prev = GUI.color;
+            GUI.color = new Color(0.02f, 0.04f, 0.06f, 0.55f);
+            GUI.DrawTexture(new Rect(x, y, w, h), Texture2D.whiteTexture);
+            GUI.color = new Color(1f, 1f, 1f, 0.95f);
+            GUI.DrawTexture(new Rect(x, y, 5f, h), Texture2D.whiteTexture);
+            _callStyle.normal.textColor = Color.white;
+            _quoteStyle.normal.textColor = new Color(1f, 1f, 1f, 0.96f);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(x + 16f, y + 4f, w - 24f, 18f), callsign ?? "WSO", _callStyle);
+            GUI.Label(new Rect(x + 16f, y + 22f, w - 24f, 30f), "\"" + (quote ?? "") + "\"", _quoteStyle);
+            if (yesNo)
+            {
+                _quoteStyle.normal.textColor = new Color(0.85f, 0.95f, 0.7f, 1f);
+                GUI.Label(new Rect(x + 16f, y + 52f, w - 24f, 24f), "Y / N", _quoteStyle);
+            }
             GUI.color = prev;
         }
 
@@ -700,6 +729,20 @@ namespace Oritasy
             if (ev >= 0 && ev < LastEventAt.Length)
                 LastEventAt[ev] = now;
             _nextGlobal = now + GlobalGap;
+        }
+
+        internal static bool TryQueueCrew(string callsign, string quote, int priority)
+        {
+            if (!IsOn() || string.IsNullOrEmpty(quote))
+                return false;
+            float now = Time.unscaledTime;
+            if (_hasCurrent && _current.Priority >= 6 && priority < _current.Priority
+                && now - _current.Born < 1.6f)
+                return false;
+            if (priority < 5 && now < _nextGlobal)
+                return false;
+            ForceLine(callsign, quote, false, false, 13, priority);
+            return true;
         }
 
         private static Unit FindNearestBetrayed(bool preferLastLeft)
@@ -1581,7 +1624,7 @@ namespace Oritasy
         private static readonly string[] FoxZh = new string[]
         {
             "导弹发射！",
-            "导弹已出筒！",
+            "导弹已发射！",
             "锁定，发射！",
             "武器投放！"
         };
@@ -1638,8 +1681,8 @@ namespace Oritasy
         {
             "我被击中了！",
             "中弹了！中弹了！",
-            "受损！在冒烟！",
-            "这一发打中了！"
+            "弹射！座舱在冒烟！",
+            "那是接...结结实实挨了一发！"
         };
         private static readonly string[] DownEn = new string[]
         {
@@ -1692,7 +1735,7 @@ namespace Oritasy
             "开火！",
             "对空导弹发射！",
             "拦截敌机！",
-            "导弹出筒！"
+            "导弹发射！"
         };
         private static readonly string[] GndIncomingEn = new string[]
         {
@@ -1718,8 +1761,8 @@ namespace Oritasy
         private static readonly string[] GndStrafeZh = new string[]
         {
             "敌机超低空来袭！",
-            "要扫射了！散开！",
-            "对准我们了！",
+            "敌机要扫射了！散开！",
+            "他对准我们了！",
             "快离开道路！"
         };
         private static readonly string[] GndTrackEn = new string[]
@@ -1865,7 +1908,7 @@ namespace Oritasy
         {
             "归队目标在头顶。别敬礼。",
             "就是先前叛变的目标。炮口别松。",
-            "指挥：识别是友，飞行员不可靠。"
+            "指挥：他不属于任何一遍，打。"
         };
         private static readonly string[] SerialHostEn = new string[]
         {
@@ -1915,8 +1958,8 @@ namespace Oritasy
         };
         private static readonly string[] GndSerialAllyZh = new string[]
         {
-            "识别是友，人是反复叛徒。别接该目标呼叫。",
-            "名单上记了两次。冷处理。",
+            "识别是友军，人是第二次叛变的叛徒。别接该目标呼叫。",
+            "雷达上那家伙直接无视就好。",
             "别跟叛变目标一起走。"
         };
         private static readonly string[] ArmyFirstEn = new string[]
@@ -1962,7 +2005,7 @@ namespace Oritasy
         private static readonly string[] ArmyAgainFirstZh = new string[]
         {
             "各单位，叛徒从{0}再次换边，仍按敌机处置。",
-            "第二次叛变。对该机自由开火。",
+            "二次叛变。对该机自由开火。",
             "确认{0}识别码再次翻转，不要接该目标呼叫。"
         };
         private static readonly string[] ArmyAgainNetEn = new string[]
@@ -1975,9 +2018,9 @@ namespace Oritasy
         private static readonly string[] ArmyAgainNetZh = new string[]
         {
             "两边都按叛徒处置。不要接该目标呼叫。",
-            "该目标用过我们又跑了。防空保持热备。",
+            "该目标用过我们又跑了。防空保持热战备。",
             "车队注意，两面派在空中，拉开间距。",
-            "指挥：前友军、前敌军，现在又是敌。"
+            "指挥：前友军、前敌军，现在又是敌军识别标识了。"
         };
         private static readonly string[] ArmySerialFirstEn = new string[]
         {
@@ -1988,8 +2031,8 @@ namespace Oritasy
         private static readonly string[] ArmySerialFirstZh = new string[]
         {
             "又换边的离开{0}，按敌机处置。",
-            "第三次了。两边旗都烧过。击落该目标。",
-            "别再看识别码。确认击落该目标。"
+            "第三次了。击落该目标。",
+            "别再看识别码。绝对要击落这小子。"
         };
         private static readonly string[] ArmySerialNetEn = new string[]
         {
@@ -1999,9 +2042,9 @@ namespace Oritasy
         };
         private static readonly string[] ArmySerialNetZh = new string[]
         {
-            "该目标哪边都不是。防空保持热备。",
-            "佣兵目标。拦截长期优先。",
-            "别浪费警告。反复叛徒在空中。"
+            "该目标哪边都不是。防空保持热战备。",
+            "佣兵目标，优先攻击。",
+            "别浪费警告的力气，那家伙是个叛徒。"
         };
         private static readonly string[] AllyCmdAgainFirstEn = new string[]
         {
@@ -2011,9 +2054,9 @@ namespace Oritasy
         };
         private static readonly string[] AllyCmdAgainFirstZh = new string[]
         {
-            "指挥：叛变飞行员已归队。禁止单独任务。",
-            "各机注意，{0}归队者不可靠，保持间隔。",
-            "识别码恢复友军。信任不恢复。盯着那个机尾。"
+            "指挥：叛变飞行员已归队，禁止其单独行动。",
+            "各机注意，{0}归队者不可信，保持间距。",
+            "识别码恢复友军，盯着那个叛变又回来的家伙。"
         };
         private static readonly string[] AllyCmdAgainEn = new string[]
         {
@@ -2023,9 +2066,9 @@ namespace Oritasy
         };
         private static readonly string[] AllyCmdAgainZh = new string[]
         {
-            "不要掩护归队目标。曾经叛变过。",
-            "车队网：涂装是友，飞行员不可靠。冷处理。",
-            "归队目标脱离就让走。我们不追叛徒回家。"
+            "不要掩护归队目标。那家伙先前就叛变过。",
+            "车队指挥网络：涂装是友军，但那个飞行员不可信。",
+            "狗操的叛徒。"
         };
         private static readonly string[] AllyCmdSerialFirstEn = new string[]
         {
@@ -2035,9 +2078,9 @@ namespace Oritasy
         };
         private static readonly string[] AllyCmdSerialFirstZh = new string[]
         {
-            "指挥：反复叛变者在{0}归队。只给编号，不授指挥。",
-            "第三次了。该目标跟我们飞，不为我们飞。",
-            "各单位：那个机尾有毒。别敬礼。"
+            "指挥：反复叛变者在{0}归队。列入不可信名单，无指挥权限。",
+            "第三次叛变了，那家伙怎么想的。",
+            "各单位：那个叛徒归队了。"
         };
         private static readonly string[] AllyCmdSerialEn = new string[]
         {
@@ -2047,9 +2090,9 @@ namespace Oritasy
         };
         private static readonly string[] AllyCmdSerialZh = new string[]
         {
-            "别接该目标呼叫。反复叛徒挂着友军识别。",
-            "别让归队目标靠近车队。我们不欠掩护。",
-            "两边指挥网都按叛徒处置。记住这点。"
+            "别接该目标呼叫。那个叛徒识别信号是友军。",
+            "别让归队目标靠近车队。我们不缺那种家伙的掩护。",
+            "那小子都按叛徒处置，记住这点。"
         };
         private static readonly string[] AllyIdleEn = new string[]
         {

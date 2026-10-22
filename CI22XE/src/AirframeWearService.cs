@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Reflection;
+using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
 
@@ -91,7 +92,7 @@ namespace Oritasy
         private const float DisplayFull = 100f;
         private const float DefaultPartGGate = 7f;
         private const float SoftPartGGate = 4f;
-        private const float WearRateMul = 1.25f;
+        private const float WearRateMul = 2.6f;
         private const float AbWearAfter = 180f;
         private const float ClickRepairSeconds = 2f;
         private const int MaterialMax = 3;
@@ -126,12 +127,17 @@ namespace Oritasy
         private static float _pilot = 1f;
         private static float _abHold;
         private static float _gHold;
+        private static float _wearSimAt;
+        private static float _wearSimAcc;
         private static float _applyAt;
         private static float _flickerMul = 1f;
         private static readonly float[] _flickerMulBank = new float[8];
         private static readonly float[] _flickerAtBank = new float[8];
         private static readonly float[] _nozProp0 = new float[8];
         private static float _cascadeAt;
+        private static float _cruiseAt;
+        private static readonly bool[] _shedPlant = new bool[8];
+        private const float MountFailHealth = 0.02f;
         private static int _hudFlashesLeft;
         private static bool _hudFlashOn;
         private static float _hudFlashAt;
@@ -145,20 +151,76 @@ namespace Oritasy
         private static readonly List<int> _repairQ = new List<int>(16);
         private static float _repairLeft;
         private static float _hitAt;
+        private static float _locHitAt;
         private static readonly List<object> _flickerAbs = new List<object>(16);
         private static int _flickerAbI = -1;
         private static float _flickerAbAt;
         private static readonly bool[] _fuelCut = new bool[8];
         private static bool _reportSuppressed;
+        private static ConfigEntry<bool> WearEnabled;
+        private static bool _wearWasOn = true;
         private static readonly MethodInfo ActionsClear =
             AccessTools.Method(typeof(AircraftActionsReport), "ClearMessages");
         private const int HudFlashTimes = 10;
         private const int SwitchHudFlashTimes = 5;
         private const float HudFlashOn = 0.16f;
         private const float HudFlashOff = 0.12f;
-        /// <summary>High-alt engine set starts at 14 km radar; hysteresis off at 12.5 km.</summary>
+        /// <summary>High-alt engine set starts at 14 km radar (VL-49 9 km); hysteresis off at 12.5 km (VL-49 7.5 km).</summary>
         private const float HiOnAlt = 14000f;
         private const float HiOffAlt = 12500f;
+        private const float Vl49HiOnAlt = 9000f;
+        private const float Vl49HiOffAlt = 7500f;
+
+        internal static void Bind(ConfigFile config)
+        {
+            if (config == null)
+                return;
+            WearEnabled = config.Bind("Flight", "EngineWearSim", true,
+                "Engine / airframe wear that needs in-flight F8 repairs. Off = vanilla engines, no wear drain.");
+        }
+
+        internal static bool WearSimOn()
+        {
+            // 258C: full features — wear stays on; hitch Recovering skip is elsewhere.
+            return true;
+        }
+
+        internal static void SetWearSim(bool on)
+        {
+            if (WearEnabled != null)
+                WearEnabled.Value = on;
+            if (!on)
+                RestoreFromWearOff(LocalAircraft());
+        }
+
+        internal static void DrawProfileToggle()
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(UiLang.T("Engine wear / in-flight repair", "引擎磨损 / 空中维修"), GUILayout.Width(220f));
+            Color prev = GUI.backgroundColor;
+            bool on = WearSimOn();
+            GUI.backgroundColor = on ? new Color(0.45f, 0.85f, 0.55f) : Color.white;
+            if (GUILayout.Button(on ? UiLang.T("ON", "开") : UiLang.T("OFF", "关"),
+                GUILayout.Width(90f), GUILayout.Height(26f)))
+            {
+                SetWearSim(!on);
+                on = !on;
+            }
+            GUI.backgroundColor = prev;
+            GUILayout.Label(on ? UiLang.T("  [ON]", "  [开]") : UiLang.T("  [OFF]", "  [关]"),
+                GUILayout.Width(56f));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.Label(
+                on
+                    ? UiLang.T(
+                        "ON: engines wear in flight. Use F8 to repair parts.",
+                        "开：飞行中引擎会磨损，用 F8 修部件。")
+                    : UiLang.T(
+                        "OFF: vanilla engines. No wear drain and no in-flight F8 repairs.",
+                        "关：原版引擎。不再磨损，也不需要空中 F8 维修。"),
+                GUILayout.ExpandWidth(true));
+        }
 
         internal static float PilotHealth01()
         {
@@ -187,6 +249,8 @@ namespace Oritasy
 
         internal static bool Flickering()
         {
+            if (!WearSimOn())
+                return false;
             for (int i = 0; i < _banks && i < 8; i++)
             {
                 if (_flickerMulBank[i] < 0.97f)
@@ -418,12 +482,24 @@ namespace Oritasy
         {
             if (eng == null)
                 return true;
+            if (PlantIsShed(eng))
+                return false;
             if (!HasSeparateHiPlants())
                 return true;
             int b = PlantIndex(eng);
             if (b < 0)
                 return true;
             return BankAltitudeActive(b);
+        }
+
+        internal static bool PlantIsShed(Component eng)
+        {
+            if (!WearSimOn())
+                return false;
+            int i = PlantIndex(eng);
+            if (i < 0 || i >= 8)
+                return false;
+            return _shedPlant[i];
         }
 
         /// <summary>1 = low-alt, 2 = high-alt, 0 = unmarked.</summary>
@@ -528,6 +604,24 @@ namespace Oritasy
             catch { return; }
             if (id != _acId)
                 BindAircraft(ac, id);
+            if (!WearSimOn())
+            {
+                if (_wearWasOn)
+                {
+                    RestoreFromWearOff(ac);
+                    _wearWasOn = false;
+                }
+                if (LocalPilotGone(ac))
+                {
+                    SuppressReports();
+                    return;
+                }
+                _reportSuppressed = false;
+                TickAltitudeMode(ac);
+                ApplyFuelCutoff();
+                return;
+            }
+            _wearWasOn = true;
             if (LocalPilotGone(ac))
             {
                 SuppressReports();
@@ -539,6 +633,8 @@ namespace Oritasy
             if (dt <= 0f || dt > 0.25f)
                 dt = 0.02f;
 
+            // Hold timers every frame (cheap). Heavy drain/sync at ~20 Hz with
+            // accumulated dt so continuous-pitch G wear stays the same.
             float g = Mathf.Abs(AircraftGLoadService.ReadSignedG(ac));
             bool afterburner = IsAfterburning();
             float gGate = GGate();
@@ -552,19 +648,36 @@ namespace Oritasy
             else
                 _abHold = Mathf.Max(0f, _abHold - dt * 1.5f);
 
-            ApplyPilotDrain(g, dt, gGate);
-            ApplyPartDrain(g, afterburner, dt);
-            TickTemperature(ac, afterburner, dt);
-            ApplyHeatDrain(dt);
-            ApplyMountManeuver(ac, g, dt);
+            _wearSimAcc += dt;
+            // skip heavy wear while hitch / already-slow frame (pitch was amplifying GC).
+            if (!(PerfFrameGate.Recovering || PerfFrameGate.LastDtMs >= 45f)
+                && Time.unscaledTime >= _wearSimAt)
+            {
+                _wearSimAt = Time.unscaledTime + 0.05f;
+                float simDt = _wearSimAcc;
+                _wearSimAcc = 0f;
+                if (simDt > 0.25f)
+                    simDt = 0.25f;
+                if (simDt > 0.0001f)
+                {
+                    ApplyPilotDrain(g, simDt, gGate);
+                    ApplyPartDrain(g, afterburner, simDt);
+                    TickTemperature(ac, afterburner, simDt);
+                    ApplyHeatDrain(simDt);
+                    ApplyMountManeuver(ac, g, simDt);
+                    ApplyCruiseWear(ac);
+                    SyncVanillaIntoParts();
+                    TickFlicker(simDt);
+                    TickCascade(simDt);
+                    FlushHurt();
+                    TickMountFailure(ac);
+                }
+            }
+
             TickAltitudeMode(ac);
             ApplyFuelCutoff();
-            SyncVanillaIntoParts();
             TickRepairQueue();
-            TickFlicker(dt);
             TickFlickerAbVisual();
-            TickCascade(dt);
-            FlushHurt();
             TickHudFlash();
 
             if (Time.unscaledTime >= _applyAt)
@@ -591,6 +704,8 @@ namespace Oritasy
             if (index < 0 || index >= _parts.Count)
                 return false;
             Part p = _parts[index];
+            if (p.Bank >= 0 && BankIsShed(p.Bank))
+                return false;
             if (p.Health >= p.Ceiling * 0.995f)
                 return false;
             if (IsQueued(index))
@@ -651,7 +766,10 @@ namespace Oritasy
             _thInited = false;
             ResetTempsToIdle();
             for (int i = 0; i < 8; i++)
+            {
                 _fuelCut[i] = false;
+                _shedPlant[i] = false;
+            }
             for (int i = 0; i < _parts.Count; i++)
             {
                 Part p = _parts[i];
@@ -663,6 +781,12 @@ namespace Oritasy
                 WriteFuel(_plants[i], true);
             if (ac != null)
                 PushToEngines(ac);
+        }
+
+        private static void RestoreFromWearOff(Aircraft ac)
+        {
+            ResetAll(ac);
+            _wearWasOn = false;
         }
 
         internal static void TestHurtG()
@@ -809,9 +933,13 @@ namespace Oritasy
             _thPrev = 0f;
             _tempDir = 0;
             _tempTravel = 0f;
+            _cruiseAt = 0f;
             _reportSuppressed = false;
             for (int i = 0; i < 8; i++)
+            {
                 _fuelCut[i] = false;
+                _shedPlant[i] = false;
+            }
             _hudFlashesLeft = 0;
             _hudFlashOn = false;
             _hudFlashText = null;
@@ -990,6 +1118,20 @@ namespace Oritasy
             return k == 1;
         }
 
+        private static float HiOnForCurrent()
+        {
+            if (AircraftIdentity.IsVl49(_acKey) || _family == Family.Tilt)
+                return Vl49HiOnAlt;
+            return HiOnAlt;
+        }
+
+        private static float HiOffForCurrent()
+        {
+            if (AircraftIdentity.IsVl49(_acKey) || _family == Family.Tilt)
+                return Vl49HiOffAlt;
+            return HiOffAlt;
+        }
+
         private static void TickAltitudeMode(Aircraft ac)
         {
             float alt = 0f;
@@ -999,7 +1141,7 @@ namespace Oritasy
                     alt = ac.radarAlt;
             }
             catch { alt = 0f; }
-            bool want = _hiActive ? alt >= HiOffAlt : alt >= HiOnAlt;
+            bool want = _hiActive ? alt >= HiOffForCurrent() : alt >= HiOnForCurrent();
             if (!_hiInited)
             {
                 _hiActive = want;
@@ -1121,6 +1263,8 @@ namespace Oritasy
                 _vanilla[b] = 1f;
             for (int i = 0; i < _plants.Count && i < _banks; i++)
             {
+                if (i < 8 && _shedPlant[i])
+                    continue;
                 if (_mixedAlt && !BankAltitudeActive(i))
                     _vanilla[i] = 1f;
                 else
@@ -1548,14 +1692,14 @@ namespace Oritasy
         {
             float gRate = 0f;
             if (g > _partGGate && _gHold > 2f)
-                gRate = 0.00018f * (g - _partGGate);
+                gRate = 0.00030f * (g - _partGGate);
             float abRate = 0f;
             if (afterburner && _abHold > AbWearAfter)
             {
                 float over = _abHold - AbWearAfter;
                 if (over > 300f)
                     over = 300f;
-                abRate = 0.00022f + 0.000012f * over;
+                abRate = 0.00036f + 0.000020f * over;
             }
             float stress = SecondaryStress();
             float mul = (1f + stress * 0.55f) * MaterialWearMul();
@@ -1575,7 +1719,7 @@ namespace Oritasy
                 if (d <= 0f)
                     continue;
                 float before = p.Health;
-                p.Health = Mathf.Max(0.02f, p.Health - d * mul * p.WearMul * WearRateMul * dt);
+                p.Health = Mathf.Max(DrainFloor(p), p.Health - d * mul * p.WearMul * WearRateMul * dt);
                 if (p.Health > p.Ceiling)
                     p.Health = p.Ceiling;
                 _parts[i] = p;
@@ -1790,7 +1934,7 @@ namespace Oritasy
             float heat = core - 1.04f;
             if (heat > 0f)
             {
-                float r = 0.00030f * heat * mat;
+                float r = 0.00050f * heat * mat;
                 DrainSuffix("combustor", r * dt * 1.45f);
                 DrainSuffix("inject", r * dt * 1.30f);
                 DrainSuffix("carb", r * dt * 1.25f);
@@ -1807,14 +1951,14 @@ namespace Oritasy
             float oil = Hottest(_oilTemp);
             if (oil > 1.06f)
             {
-                float r = 0.00032f * (oil - 1.06f) * mat;
+                float r = 0.00050f * (oil - 1.06f) * mat;
                 DrainSuffix("oil", r * dt);
                 DrainSuffix("inject", r * dt * 0.55f);
             }
             float ab = Hottest(_abTemp);
             if (_hasAbHw && ab > 1.38f)
             {
-                float r = 0.00012f * (ab - 1.38f) * mat;
+                float r = 0.00020f * (ab - 1.38f) * mat;
                 DrainSuffix("ab", r * dt);
                 DrainSuffix("nozzle", r * dt * 0.7f);
             }
@@ -1827,7 +1971,7 @@ namespace Oritasy
                 overG = 0f;
             float man = 0f;
             if (overG > 0f)
-                man = 0.0000065f * Mathf.Pow(overG, 1.12f);
+                man = 0.000012f * overG * (1f + 0.12f * overG); // approx Pow(overG,1.12), no Pow hitch
             float spin = 0f;
             try
             {
@@ -1844,6 +1988,13 @@ namespace Oritasy
             DrainSuffix("mast", man * 0.85f * mat * dt);
         }
 
+        private static float DrainFloor(Part p)
+        {
+            if (IdSuffix(p.Id, "mounts") || IdSuffix(p.Id, "mast"))
+                return 0f;
+            return 0.02f;
+        }
+
         private static void DrainSuffix(string suffix, float amount)
         {
             if (amount <= 0.0000001f)
@@ -1854,12 +2005,76 @@ namespace Oritasy
                     continue;
                 Part p = _parts[i];
                 float before = p.Health;
-                p.Health = Mathf.Max(0.02f, p.Health - amount * p.WearMul * WearRateMul);
+                p.Health = Mathf.Max(DrainFloor(p), p.Health - amount * p.WearMul * WearRateMul);
                 if (p.Health > p.Ceiling)
                     p.Health = p.Ceiling;
                 _parts[i] = p;
                 NoteHurtIfDropped(i, before, p.Health);
             }
+        }
+
+        private static void ApplyCruiseWear(Aircraft ac)
+        {
+            if (ac == null || _parts.Count <= 0)
+                return;
+            if (!AircraftIgnition())
+                return;
+            try
+            {
+                if (JoinMenuFactionFix.SelectionUiOpen())
+                    return;
+            }
+            catch { }
+            float th = ReadThrottle01(ac);
+            if (th < 0.18f)
+                return;
+            float spd = 0f;
+            float alt = 0f;
+            try
+            {
+                spd = ac.speed;
+                alt = ac.radarAlt;
+            }
+            catch { }
+            if (alt < 12f && spd < 40f)
+                return;
+            if (Time.unscaledTime < _cruiseAt)
+                return;
+            _cruiseAt = Time.unscaledTime + 3.2f;
+            float chance = 0.048f * MaterialWearMul();
+            if (th > 0.72f)
+                chance *= 1.35f;
+            if (Random.value > chance)
+                return;
+            int pick = -1;
+            int tries = 0;
+            while (tries < 12)
+            {
+                tries++;
+                int i = Random.Range(0, _parts.Count);
+                Part cand = _parts[i];
+                if (IsApuPart(cand) || cand.Prop)
+                    continue;
+                if (cand.Bank >= 0)
+                {
+                    if (BankIsShed(cand.Bank))
+                        continue;
+                }
+                else if (!IdSuffix(cand.Id, "mounts") && !IdSuffix(cand.Id, "mast"))
+                    continue;
+                pick = i;
+                break;
+            }
+            if (pick < 0)
+                return;
+            Part p = _parts[pick];
+            float before = p.Health;
+            float drop = Random.Range(0.007f, 0.020f) * p.WearMul * MaterialWearMul();
+            p.Health = Mathf.Max(DrainFloor(p), p.Health - drop);
+            if (p.Health > p.Ceiling)
+                p.Health = p.Ceiling;
+            _parts[pick] = p;
+            NoteHurtIfDropped(pick, before, p.Health);
         }
 
         private static float Hottest(float[] arr)
@@ -2007,19 +2222,29 @@ namespace Oritasy
 
         private static void ApplyFuelCutoff()
         {
+            bool wear = WearSimOn();
             for (int b = 0; b < _banks && b < _plants.Count && b < 8; b++)
             {
-                float inj = BankSuffixHealth(b, "inject");
-                float carb = BankSuffixHealth(b, "carb");
-                float fuel = inj;
-                if (carb < fuel)
-                    fuel = carb;
-                bool cut = _fuelCut[b];
-                if (!cut && fuel < 0.20f)
-                    cut = true;
-                else if (cut && fuel > 0.30f)
-                    cut = false;
-                if (cut && !_fuelCut[b])
+                bool cut = false;
+                bool shed = false;
+                if (wear)
+                {
+                    float inj = BankSuffixHealth(b, "inject");
+                    float carb = BankSuffixHealth(b, "carb");
+                    float fuel = inj;
+                    if (carb < fuel)
+                        fuel = carb;
+                    cut = _fuelCut[b];
+                    if (!cut && fuel < 0.20f)
+                        cut = true;
+                    else if (cut && fuel > 0.30f)
+                        cut = false;
+                    int plant = PhysicalPlant(b);
+                    shed = plant >= 0 && plant < 8 && _shedPlant[plant];
+                    if (shed)
+                        cut = true;
+                }
+                if (cut && !_fuelCut[b] && !shed)
                 {
                     _hudFlashText = UiLang.T(
                         "Fuel injection  CUTOFF",
@@ -2044,10 +2269,17 @@ namespace Oritasy
         {
             if (eng == null)
                 return;
+            if (_plants.Count == 0)
+                return;
+            if (WearSimOn() && PlantIsShed(eng))
+            {
+                WriteFuel(eng, false);
+                return;
+            }
             int b = PlantIndex(eng);
             if (b < 0)
                 return;
-            bool cut = b < 8 && _fuelCut[b];
+            bool cut = WearSimOn() && b < 8 && _fuelCut[b];
             if (HasSeparateHiPlants() && !BankAltitudeActive(b))
                 cut = true;
             if (cut)
@@ -2112,8 +2344,8 @@ namespace Oritasy
             int idx = Random.Range(0, _parts.Count);
             Part p = _parts[idx];
             float before = p.Health;
-            float drop = Random.Range(0.002f, 0.008f) * p.WearMul * MaterialWearMul() * WearRateMul;
-            p.Health = Mathf.Max(0.02f, p.Health - drop);
+            float drop = Random.Range(0.0035f, 0.014f) * p.WearMul * MaterialWearMul() * WearRateMul;
+            p.Health = Mathf.Max(DrainFloor(p), p.Health - drop);
             if (p.Health > p.Ceiling)
                 p.Health = p.Ceiling;
             _parts[idx] = p;
@@ -2129,7 +2361,7 @@ namespace Oritasy
                 if (!((g && p.GSensitive) || (ab && p.AbSensitive)))
                     continue;
                 float before = p.Health;
-                p.Health = Mathf.Max(0.02f, p.Health - amount * WearRateMul);
+                p.Health = Mathf.Max(DrainFloor(p), p.Health - amount * WearRateMul);
                 _parts[i] = p;
                 NoteHurtIfDropped(i, before, p.Health);
             }
@@ -2369,6 +2601,11 @@ namespace Oritasy
             {
                 for (int i = 0; i < _plants.Count && i < _banks; i++)
                 {
+                    if (i < 8 && _shedPlant[i])
+                    {
+                        KillPlant(_plants[i]);
+                        continue;
+                    }
                     bool on = BankAltitudeActive(i);
                     float f = on ? BankFactor(i) : 0.02f;
                     ApplyFactor(_plants[i], f);
@@ -2382,6 +2619,11 @@ namespace Oritasy
             {
                 for (int i = 0; i < _plants.Count; i++)
                 {
+                    if (i < 8 && _shedPlant[i])
+                    {
+                        KillPlant(_plants[i]);
+                        continue;
+                    }
                     int slot = i;
                     if (lo > 0)
                         slot = i % lo;
@@ -2415,6 +2657,11 @@ namespace Oritasy
                         f = BankAltitudeActive(b) ? BankFactor(b) : 0.02f;
                     }
                     float baseP = i < 8 ? _nozProp0[i] : 1f;
+                    int plantI = i;
+                    if (lo > 0)
+                        plantI = i % lo;
+                    if (plantI >= 0 && plantI < 8 && plantI < _plants.Count && _shedPlant[plantI])
+                        f = 0f;
                     WriteFloat(_nozzles[i], JetThrustProp, baseP * f);
                 }
             }
@@ -2444,6 +2691,11 @@ namespace Oritasy
                                 f = BankAltitudeActive(b) ? BankFactor(b) : 0.02f;
                             }
                             WriteFloat(rotors[i], RotorCondition, f);
+                            int rp = i;
+                            if (lo > 0)
+                                rp = i % lo;
+                            if (rp >= 0 && rp < 8 && rp < _plants.Count && _shedPlant[rp])
+                                WriteFloat(rotors[i], RotorCondition, 0f);
                         }
                     }
                 }
@@ -2552,6 +2804,233 @@ namespace Oritasy
             AfterburnerAmountField = AccessTools.Field(nested, "afterburnerAmount");
         }
 
+        internal static void NotifyLocationHit(UnitPart part, int module, int hitKind, int face)
+        {
+            if (!WearSimOn())
+                return;
+            if (part == null || _parts.Count <= 0)
+                return;
+            Aircraft local = LocalAircraft();
+            if (local == null || LocalPilotGone(local))
+                return;
+            Unit parent = null;
+            try { parent = part.parentUnit; }
+            catch { return; }
+            if (parent == null || parent != (Unit)local)
+                return;
+
+            float now = Time.unscaledTime;
+            _locHitAt = now;
+            _hitAt = now + 0.35f;
+
+            if (hitKind == ModularArmorMathService.HitBounce)
+                return;
+
+            float scale = 0.28f;
+            if (hitKind == ModularArmorMathService.HitPen)
+                scale = 0.72f;
+            else if (hitKind == ModularArmorMathService.HitOvermatch)
+                scale = 1.15f;
+            scale *= MaterialWearMul();
+
+            int phys = BankFromHitPart(part, local);
+            bool helo = AircraftIdentity.IsUh90(_acKey) || AircraftIdentity.IsSah46(_acKey)
+                || _family == Family.Helo;
+            bool tilt = AircraftIdentity.IsVl49(_acKey) || _family == Family.Tilt;
+            _hitKind = 0;
+
+            int n = 0;
+            if (module == ModularArmorService.ModEngine)
+            {
+                if (helo)
+                {
+                    n += HurtEngineSide(phys, scale, true, "shaft");
+                    n += HurtEngineSide(phys, scale * 0.5f, false, "oil", "inject");
+                    if (face == ModularArmorMathService.FaceTop
+                        || face == ModularArmorMathService.FaceBottom)
+                        n += HurtBySuffix(-1, scale * 0.8f, true, "mgb", "mast", "swash");
+                    else
+                        n += HurtBySuffix(-1, scale * 0.4f, false, "mgb");
+                    if (face == ModularArmorMathService.FaceRear)
+                        n += HurtBySuffix(-1, scale * 0.55f, false, "tgb");
+                }
+                else if (tilt)
+                {
+                    n += HurtEngineSide(phys, scale, true, "shaft", "rotor");
+                    n += HurtEngineSide(phys, scale * 0.45f, false, "oil", "inject");
+                    n += HurtBySuffix(-1, scale * 0.35f, false, "combine");
+                    n += HurtBySuffix(-1, scale * 0.5f, true, "mounts");
+                }
+                else
+                {
+                    n += HurtEngineSide(phys, scale, true, "core", "combustor", "crank", "pfan");
+                    n += HurtEngineSide(phys, scale * 0.55f, false, "turbine", "compressor");
+                    n += HurtEngineSide(phys, scale * 0.4f, false, "oil");
+                    n += HurtEngineSide(phys, scale * 0.5f, true, "mounts");
+                }
+            }
+            else if (module == ModularArmorService.ModFuel)
+            {
+                n += HurtEngineSide(phys, scale * 0.9f, true, "inject", "carb");
+                n += HurtEngineSide(phys, scale * 0.4f, false, "oil");
+            }
+            else if (module == ModularArmorService.ModAirframe)
+            {
+                n += HurtBySuffix(-1, scale * 0.7f, true, "mounts", "mast");
+                n += HurtEngineSide(phys, scale * 0.7f, true, "mounts");
+                n += HurtEngineSide(phys, scale * 0.28f, false, "oil");
+                if (helo && face == ModularArmorMathService.FaceTop)
+                    n += HurtBySuffix(-1, scale * 0.55f, true, "swash", "mgb");
+            }
+            else if (module == ModularArmorService.ModMobility)
+            {
+                if (helo)
+                    n += HurtBySuffix(-1, scale * 0.9f, true, "tgb", "swash");
+                else if (tilt)
+                {
+                    n += HurtEngineSide(phys, scale * 0.85f, true, "tilt", "rotor");
+                    n += HurtBySuffix(-1, scale * 0.4f, false, "combine");
+                }
+                else
+                    n += HurtEngineSide(phys, scale * 0.8f, true, "vector", "lift", "nozzle");
+            }
+            else if (module == ModularArmorService.ModCommand)
+            {
+                _pilot = Mathf.Max(0f, _pilot - 0.08f * scale);
+                n += HurtBySuffix(-1, scale * 0.35f, false, "apu");
+            }
+            else if (module == ModularArmorService.ModSensors)
+            {
+                n += HurtBySuffix(-1, scale * 0.5f, true, "apu", "magneto");
+                if (helo)
+                    n += HurtBySuffix(-1, scale * 0.35f, false, "mast");
+            }
+            else
+            {
+                n += HurtEngineSide(phys, scale * 0.3f, false, "mounts", "oil");
+            }
+
+            if (n <= 0)
+                HurtRandomParts(1, 0.018f * scale, 0.045f * scale, true);
+
+            FlushHurt();
+            TickMountFailure(local);
+            _hitKind = 0;
+        }
+
+        private static int BankFromHitPart(UnitPart part, Aircraft ac)
+        {
+            int physical = _loCount;
+            if (physical < 1)
+                physical = _plants.Count;
+            if (physical < 1)
+                physical = 1;
+            if (physical > _banks && _banks > 0)
+                physical = _banks;
+
+            Transform ht = null;
+            try { ht = part.transform; }
+            catch { }
+            if (ht != null && _plants.Count > 0)
+            {
+                int best = -1;
+                float bestD = 1e9f;
+                int limit = _plants.Count;
+                if (limit > physical)
+                    limit = physical;
+                for (int i = 0; i < limit; i++)
+                {
+                    Component c = _plants[i];
+                    if (c == null)
+                        continue;
+                    Transform tf = null;
+                    try { tf = c.transform; }
+                    catch { }
+                    if (tf == null)
+                        continue;
+                    float d = (tf.position - ht.position).sqrMagnitude;
+                    if (d < bestD)
+                    {
+                        bestD = d;
+                        best = i;
+                    }
+                }
+                if (best >= 0)
+                    return best;
+            }
+
+            if (ac == null || ac.transform == null || ht == null)
+                return 0;
+            Vector3 lp;
+            try { lp = ac.transform.InverseTransformPoint(ht.position); }
+            catch { return 0; }
+            if (physical <= 1)
+                return 0;
+            if (physical == 2)
+                return lp.x < 0f ? 0 : 1;
+            int col = lp.x < 0f ? 0 : 1;
+            int row = lp.z < 0f ? 0 : 1;
+            int idx = row * 2 + col;
+            if (idx >= physical)
+                idx = physical - 1;
+            return idx;
+        }
+
+        private static int HurtEngineSide(int phys, float scale, bool flashAlways, params string[] suffixes)
+        {
+            int active = phys;
+            if (_mixedAlt && _hiActive)
+                active = phys + _loCount;
+            int n = HurtBySuffix(active, scale, flashAlways, suffixes);
+            if (_mixedAlt)
+            {
+                int idle = _hiActive ? phys : phys + _loCount;
+                n += HurtBySuffix(idle, scale * 0.3f, false, suffixes);
+            }
+            return n;
+        }
+
+        private static int HurtBySuffix(int bank, float scale, bool flashAlways, params string[] suffixes)
+        {
+            if (suffixes == null || suffixes.Length <= 0 || scale <= 0.001f)
+                return 0;
+            int n = 0;
+            for (int i = 0; i < _parts.Count; i++)
+            {
+                Part p = _parts[i];
+                if (bank < 0)
+                {
+                    if (p.Bank >= 0)
+                        continue;
+                }
+                else if (p.Bank != bank)
+                    continue;
+                bool match = false;
+                for (int s = 0; s < suffixes.Length; s++)
+                {
+                    if (IdSuffix(p.Id, suffixes[s]))
+                    {
+                        match = true;
+                        break;
+                    }
+                }
+                if (!match)
+                    continue;
+                float before = p.Health;
+                float drop = Random.Range(0.04f, 0.11f) * scale * p.WearMul * WearRateMul;
+                p.Health = Mathf.Max(DrainFloor(p), p.Health - drop);
+                if (p.Health > p.Ceiling)
+                    p.Health = p.Ceiling;
+                _parts[i] = p;
+                if (flashAlways)
+                    NoteHurt(i, before - p.Health);
+                else
+                    NoteHurtIfDropped(i, before, p.Health);
+                n++;
+            }
+            return n;
+        }
+
         internal static void NotifyCombatHit(
             UnitPart part,
             float pierceDamage,
@@ -2559,6 +3038,10 @@ namespace Oritasy
             float amountAffected,
             float impactDamage)
         {
+            if (!WearSimOn())
+                return;
+            if (ModularArmorService.Enabled || Time.unscaledTime - _locHitAt < 0.12f)
+                return;
             if (part == null || _parts.Count <= 0)
                 return;
             Aircraft local = LocalAircraft();
@@ -2590,22 +3073,13 @@ namespace Oritasy
             else
                 ApplyVibration(scale * mat);
             FlushHurt();
+            TickMountFailure(local);
             _hitKind = 0;
         }
 
         private static Aircraft LocalAircraft()
         {
-            try
-            {
-                Aircraft ac;
-                if (!GameManager.GetLocalAircraft(out ac))
-                    return null;
-                return ac;
-            }
-            catch
-            {
-                return null;
-            }
+            return AircraftIdentity.CachedLocal();
         }
 
         internal static bool LocalPilotGone()
@@ -2674,6 +3148,8 @@ namespace Oritasy
             if (index < 0 || index >= _parts.Count)
                 return false;
             Part p = _parts[index];
+            if (p.Bank >= 0 && BankIsShed(p.Bank))
+                return false;
             if (p.Health >= p.Ceiling * 0.995f)
                 return false;
             p.Health = p.Ceiling;
@@ -2686,6 +3162,8 @@ namespace Oritasy
             if (index < 0 || index >= _parts.Count)
                 return false;
             Part p = _parts[index];
+            if (p.Bank >= 0 && BankIsShed(p.Bank))
+                return false;
             if (p.Health >= p.Ceiling * 0.995f && p.Ceiling >= 0.995f)
                 return false;
             p.Ceiling = Mathf.Max(CeilingFloor, p.Ceiling - Random.Range(0.04f, 0.12f));
@@ -2859,7 +3337,7 @@ namespace Oritasy
                 Part p = _parts[idx];
                 float before = p.Health;
                 float drop = Random.Range(minDrop, maxDrop) * p.WearMul * WearRateMul;
-                p.Health = Mathf.Max(0.02f, p.Health - drop);
+                p.Health = Mathf.Max(DrainFloor(p), p.Health - drop);
                 if (p.Health > p.Ceiling)
                     p.Health = p.Ceiling;
                 _parts[idx] = p;
@@ -2875,6 +3353,468 @@ namespace Oritasy
             if (obj == null || field == null)
                 return;
             try { field.SetValue(obj, value); }
+            catch { }
+        }
+
+        private static bool BankHasSuffix(int bank, string suffix)
+        {
+            for (int i = 0; i < _parts.Count; i++)
+            {
+                if (_parts[i].Bank != bank)
+                    continue;
+                if (IdSuffix(_parts[i].Id, suffix))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool BankIsShed(int bank)
+        {
+            int p = PhysicalPlant(bank);
+            if (p < 0 || p >= 8)
+                return false;
+            return _shedPlant[p];
+        }
+
+        private static int PhysicalPlant(int bank)
+        {
+            if (bank < 0)
+                return -1;
+            if (HasSeparateHiPlants())
+                return bank;
+            int lo = _loCount;
+            if (lo < 1)
+                lo = 1;
+            int slot = bank;
+            if (slot >= lo)
+                slot = slot - lo;
+            if (slot < 0)
+                slot = 0;
+            return slot;
+        }
+
+        private static void TickMountFailure(Aircraft ac)
+        {
+            if (ac == null || _parts.Count <= 0)
+                return;
+            bool any = false;
+            bool mastGone = HasSuffix("mast") && SuffixHealth("mast") <= MountFailHealth;
+            bool sharedMounts = false;
+            bool perBankMounts = false;
+            for (int i = 0; i < _parts.Count; i++)
+            {
+                if (!IdSuffix(_parts[i].Id, "mounts"))
+                    continue;
+                if (_parts[i].Bank >= 0)
+                    perBankMounts = true;
+                else
+                    sharedMounts = true;
+            }
+            bool sharedGone = sharedMounts && !perBankMounts
+                && SuffixHealth("mounts") <= MountFailHealth;
+            if (mastGone || sharedGone)
+            {
+                for (int i = 0; i < _plants.Count && i < 8; i++)
+                {
+                    if (ShedPlant(ac, i))
+                        any = true;
+                }
+                if (mastGone)
+                    ShedRotors(ac);
+            }
+            else
+            {
+                for (int b = 0; b < _banks; b++)
+                {
+                    if (!BankHasSuffix(b, "mounts"))
+                        continue;
+                    if (BankSuffixHealth(b, "mounts") > MountFailHealth)
+                        continue;
+                    if (ShedPlant(ac, PhysicalPlant(b)))
+                        any = true;
+                }
+            }
+            if (!any)
+                return;
+            BeginHudFlashText(UiLang.T(
+                "ENGINE SEPARATED",
+                "引擎脱落"), HudFlashTimes);
+            try
+            {
+                if (SceneSingleton<AircraftActionsReport>.i != null)
+                    SceneSingleton<AircraftActionsReport>.i.ReportText(_hudFlashText, 2.8f);
+            }
+            catch { }
+        }
+
+        private static bool ShedPlant(Aircraft ac, int plantIdx)
+        {
+            if (plantIdx < 0 || plantIdx >= 8 || plantIdx >= _plants.Count)
+                return false;
+            if (_shedPlant[plantIdx])
+                return false;
+            _shedPlant[plantIdx] = true;
+            Component eng = _plants[plantIdx];
+            KillPlant(eng);
+            ZeroPlantParts(plantIdx);
+            UnitPart part = FindDetachableEnginePart(eng, ac);
+            if (part != null)
+            {
+                Vector3 vel = Vector3.zero;
+                try
+                {
+                    if (ac != null && ac.rb != null)
+                        vel = ac.rb.velocity;
+                }
+                catch { }
+                try
+                {
+                    vel += ac.transform.up * -4f;
+                    vel += ac.transform.right * (plantIdx % 2 == 0 ? -6f : 6f);
+                }
+                catch { }
+                Vector3 rel = Vector3.zero;
+                try { rel = part.transform.position - ac.transform.position; }
+                catch { }
+                try { part.hitPoints = 0f; }
+                catch { }
+                try { part.Detach(vel, rel); }
+                catch { ShedVisualFallback(eng, ac); }
+            }
+            else
+                ShedVisualFallback(eng, ac);
+            return true;
+        }
+
+        private static void ZeroPlantParts(int plantIdx)
+        {
+            for (int i = 0; i < _parts.Count; i++)
+            {
+                Part p = _parts[i];
+                if (p.Bank < 0)
+                    continue;
+                if (PhysicalPlant(p.Bank) != plantIdx)
+                    continue;
+                p.Health = 0f;
+                _parts[i] = p;
+            }
+        }
+
+        private static void KillPlant(Component eng)
+        {
+            if (eng == null)
+                return;
+            WriteFuel(eng, false);
+            WriteBool(eng, TurbojetOperable, false);
+            WriteBool(eng, TurbofanOperable, false);
+            WriteBool(eng, TurbineOperable, false);
+            WriteBool(eng, PropOperable, false);
+            WriteBool(eng, DuctedInoperable, true);
+            WriteFloat(eng, TurbojetCondition, 0f);
+            WriteFloat(eng, TurbofanCondition, 0f);
+            WriteFloat(eng, TurbineCondition, 0f);
+            WriteFloat(eng, PropFanCondition, 0f);
+            WriteFloat(eng, RotorCondition, 0f);
+            WriteFloat(eng, TurbofanHitPoints, 0f);
+            Turbojet tj = eng as Turbojet;
+            if (tj != null)
+            {
+                try { tj.damageFactor = 0f; }
+                catch { }
+            }
+        }
+
+        private static UnitPart FindDetachableEnginePart(Component eng, Aircraft ac)
+        {
+            if (eng == null || ac == null)
+                return null;
+            UnitPart p = null;
+            try { p = eng.GetComponent<UnitPart>(); }
+            catch { }
+            if (IsSafeEnginePart(p, ac))
+                return p;
+            Transform t = null;
+            try { t = eng.transform; }
+            catch { t = null; }
+            if (t != null)
+            {
+                Transform parent = t.parent;
+                int hops = 0;
+                while (parent != null && hops < 6)
+                {
+                    hops++;
+                    try
+                    {
+                        if (parent.GetComponent<Aircraft>() != null)
+                            break;
+                    }
+                    catch { break; }
+                    try { p = parent.GetComponent<UnitPart>(); }
+                    catch { p = null; }
+                    if (IsSafeEnginePart(p, ac))
+                        return p;
+                    parent = parent.parent;
+                }
+            }
+            return FindNamedEnginePart(eng, ac);
+        }
+
+        private static bool IsSafeEnginePart(UnitPart p, Aircraft ac)
+        {
+            if (p == null || ac == null)
+                return false;
+            try
+            {
+                if (p.GetComponent<Aircraft>() != null)
+                    return false;
+                if (p.transform == ac.transform)
+                    return false;
+            }
+            catch { return false; }
+            AeroPart aero = p as AeroPart;
+            if (aero != null)
+            {
+                try
+                {
+                    if (aero.WingArea > 2.5f)
+                        return false;
+                }
+                catch { }
+            }
+            try
+            {
+                if (p.mass > 4500f)
+                    return false;
+            }
+            catch { }
+            try
+            {
+                if (ReadBool(p, PartDetached, false))
+                    return false;
+            }
+            catch { }
+            return true;
+        }
+
+        private static UnitPart FindNamedEnginePart(Component eng, Aircraft ac)
+        {
+            if (ac == null)
+                return null;
+            Vector3 origin = Vector3.zero;
+            try
+            {
+                if (eng != null)
+                    origin = eng.transform.position;
+                else
+                    origin = ac.transform.position;
+            }
+            catch { return null; }
+            UnitPart best = null;
+            float bestD = 1e9f;
+            try
+            {
+                UnitPart[] parts = ac.GetComponentsInChildren<UnitPart>(true);
+                if (parts == null)
+                    return null;
+                for (int i = 0; i < parts.Length; i++)
+                {
+                    UnitPart cand = parts[i];
+                    if (!IsSafeEnginePart(cand, ac))
+                        continue;
+                    string n = null;
+                    try { n = cand.gameObject.name; }
+                    catch { }
+                    if (!NameLooksLikeEngine(n))
+                        continue;
+                    float d = (cand.transform.position - origin).sqrMagnitude;
+                    if (d < bestD)
+                    {
+                        bestD = d;
+                        best = cand;
+                    }
+                }
+            }
+            catch { }
+            return best;
+        }
+
+        private static bool NameLooksLikeEngine(string n)
+        {
+            if (string.IsNullOrEmpty(n))
+                return false;
+            n = n.ToLowerInvariant();
+            if (n.IndexOf("fire") >= 0)
+                return false;
+            if (n.IndexOf("engine") >= 0)
+                return true;
+            if (n.IndexOf("nacelle") >= 0)
+                return true;
+            if (n.IndexOf("turbine") >= 0)
+                return true;
+            return false;
+        }
+
+        private static void ShedVisualFallback(Component eng, Aircraft ac)
+        {
+            if (ac == null)
+                return;
+            Transform t = null;
+            try
+            {
+                if (eng != null)
+                    t = eng.transform;
+            }
+            catch { }
+            bool rooted = false;
+            try
+            {
+                if (t != null && t.GetComponent<Aircraft>() != null)
+                    rooted = true;
+            }
+            catch { rooted = true; }
+            if (t == null || rooted)
+                t = FindEngineVisualChild(ac, eng);
+            if (t == null)
+                return;
+            try
+            {
+                if (t.GetComponent<Aircraft>() != null)
+                    return;
+            }
+            catch { return; }
+            try
+            {
+                if (t.parent == null)
+                    return;
+            }
+            catch { return; }
+            try
+            {
+                Rigidbody existing = t.GetComponent<Rigidbody>();
+                if (existing != null && ac.rb != null
+                    && object.ReferenceEquals(existing, ac.rb))
+                    return;
+            }
+            catch { return; }
+            Vector3 vel = Vector3.zero;
+            try
+            {
+                if (ac.rb != null)
+                    vel = ac.rb.velocity;
+            }
+            catch { }
+            try
+            {
+                vel += ac.transform.up * -4f;
+                t.SetParent(null, true);
+                Rigidbody rb = t.GetComponent<Rigidbody>();
+                if (rb == null)
+                    rb = t.gameObject.AddComponent<Rigidbody>();
+                rb.mass = 400f;
+                rb.velocity = vel;
+                rb.angularVelocity = new Vector3(
+                    Random.Range(-1.2f, 1.2f),
+                    Random.Range(-0.8f, 0.8f),
+                    Random.Range(-1.2f, 1.2f));
+            }
+            catch { }
+        }
+
+        private static Transform FindEngineVisualChild(Aircraft ac, Component eng)
+        {
+            if (ac == null)
+                return null;
+            Vector3 origin = Vector3.zero;
+            try
+            {
+                if (eng != null)
+                    origin = eng.transform.position;
+                else
+                    origin = ac.transform.position;
+            }
+            catch { origin = Vector3.zero; }
+            Transform best = null;
+            float bestD = 1e9f;
+            try
+            {
+                Transform[] trs = ac.GetComponentsInChildren<Transform>(true);
+                if (trs == null)
+                    return null;
+                for (int i = 0; i < trs.Length; i++)
+                {
+                    Transform c = trs[i];
+                    if (c == null)
+                        continue;
+                    try
+                    {
+                        if (c.GetComponent<Aircraft>() != null)
+                            continue;
+                    }
+                    catch { continue; }
+                    string n = null;
+                    try { n = c.gameObject.name; }
+                    catch { }
+                    if (!NameLooksLikeEngine(n))
+                        continue;
+                    Renderer r = null;
+                    try { r = c.GetComponent<Renderer>(); }
+                    catch { }
+                    if (r == null)
+                    {
+                        try { r = c.GetComponentInChildren<Renderer>(true); }
+                        catch { }
+                    }
+                    if (r == null)
+                        continue;
+                    float d = (c.position - origin).sqrMagnitude;
+                    if (d < bestD)
+                    {
+                        bestD = d;
+                        best = c;
+                    }
+                }
+            }
+            catch { }
+            return best;
+        }
+
+        private static void ShedRotors(Aircraft ac)
+        {
+            if (ac == null)
+                return;
+            try
+            {
+                RotorShaft[] rotors = ac.GetComponentsInChildren<RotorShaft>(true);
+                if (rotors == null)
+                    return;
+                for (int i = 0; i < rotors.Length; i++)
+                {
+                    WriteBool(rotors[i], RotorDetached, true);
+                    UnitPart part = null;
+                    try { part = rotors[i].GetComponent<UnitPart>(); }
+                    catch { }
+                    if (part == null)
+                    {
+                        try { part = rotors[i].GetComponentInParent<UnitPart>(); }
+                        catch { }
+                    }
+                    if (!IsSafeEnginePart(part, ac))
+                        continue;
+                    Vector3 vel = Vector3.zero;
+                    try
+                    {
+                        if (ac.rb != null)
+                            vel = ac.rb.velocity;
+                    }
+                    catch { }
+                    try { vel += ac.transform.up * 3f; }
+                    catch { }
+                    try { part.hitPoints = 0f; }
+                    catch { }
+                    try { part.Detach(vel, Vector3.up); }
+                    catch { }
+                }
+            }
             catch { }
         }
     }

@@ -1,0 +1,31 @@
+Oritasy 108C + Kh85MT 1.8.23 — high-frequency component audit
+
+=== P0 every physics frame × every in-flight missile ===
+Missile.Steering prefixes (Kh85 ×5 + Oritasy MCLOS ×1)
+  - StickyAim, Bootstrap, C/E/S Apply*, ManualSteering
+  - 108: NonKh85MissileIds HashSet → later frames skip GetComponent
+MissileSeeker.Seek (WeXon IFF + ARH guard)
+  - Was: IsGunShell/Ballistic/Cruise → GetComponentInChildren every Seek
+  - 108: MissileFlightClassCache (resolve once per missile id)
+Missile.FixedUpdate (Kh85 Maneuver + Guidance)
+  - Maneuver: tag / NonKh85 only; Guidance: tag only
+Missile.DetectCollisions (Kh85 C water skim) — NonKh85 gate
+Turbojet/Turbofan.FixedUpdate (HighAltEngineAssist Pref+Post)
+  - Was: GetLocalAircraft every engine every FU
+  - 108: frame-cached local aircraft
+
+=== P1 every frame (single plugin Update) ===
+Oritasy.Update: Critical (cam/AP/assist) every frame; HUD slot 1/2; polish 1/3
+  ChineseFontPatch.Tick: FindObjectsOfType Text @ 8s Med (not every frame)
+WeXon.Update: career/flight/arsenal — staggered on LowEnd
+MultiModeBrain.Update: optical ≥1s; safety 4Hz; sticky GuideTo ~10Hz
+
+=== P2 event / rare ===
+Spawn/Initialize/Fire/Detonate, WeaponChecker hangar, encyclopedia inject
+VaporEmitter.Emit — soft alpha only (cheap)
+OnGUI — menus / PerfProbe when open
+
+=== Intentionally left ===
+Seek still runs EnforceIffThrottled (0.5s/missile) — needed for friendly clear
+SlowChecks skip while MM hunt — LowSpeed SD covers dud fall
+Optical LOAL grid hunt ~1.5s — unit-dense maps can hitch once per scan

@@ -13,7 +13,7 @@ namespace Oritasy
     internal static class OritasyWorker
     {
         private const int MaxWorkers = 4;
-        private const int MaxPending = 16;
+        private const int MaxPending = 32;
         private static readonly object Gate = new object();
         private static readonly Queue<Job> Pending = new Queue<Job>(16);
         private static readonly Queue<Job> Completed = new Queue<Job>(16);

@@ -130,5 +130,12 @@ namespace WeXon
                 n += length;
             return n;
         }
+        internal static float DistanceScore(float ox, float oy, float oz, float px, float py, float pz)
+        {
+            float dx = px - ox;
+            float dy = py - oy;
+            float dz = pz - oz;
+            return dx * dx + dy * dy + dz * dz;
+        }
     }
 }

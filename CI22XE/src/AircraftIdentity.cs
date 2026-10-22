@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 
 namespace Oritasy
@@ -24,7 +26,7 @@ namespace Oritasy
             "Ibis", "Vagrant", "Brawler", "Warthog", "Liberator",
             "AB-4", "AB4", "VT-7", "VT7",
             "T/A-30", "TA-30", "TA30", "T-A-30",
-            "SAH-46", "SAH46", "Alkyon"
+            "SAH-46", "SAH46", "SAH-64", "SAH64", "Alkyon"
         };
 
         internal static string StripXe(string s)
@@ -160,7 +162,8 @@ namespace Oritasy
 
         internal static bool IsSah46(string key)
         {
-            return ContainsAny(key, "SAH-46", "SAH46", "RAH-46", "RAH46", "Chicane");
+            return ContainsAny(key, "SAH-46", "SAH46", "SAH-64", "SAH64",
+                "RAH-46", "RAH46", "RAH-64", "RAH64", "Chicane");
         }
 
         internal static bool IsRotorcraft(string key)
@@ -185,7 +188,30 @@ namespace Oritasy
 
         internal static bool IsTa30(string key)
         {
-            return ContainsAny(key, "T/A-30", "TA-30", "TA30", "T-A-30", "Compass", "trainer");
+            if (string.IsNullOrEmpty(key))
+                return false;
+            // VT-7 is also a trainer. Never let the Compass jsonKey stem steal it.
+            if (IsVt7(key))
+                return false;
+            if (ContainsAny(key, "T/A-30", "TA-30", "TA30", "T-A-30", "Compass"))
+                return true;
+            // Vanilla T/A-30 Compass jsonKey is exactly "trainer".
+            return FirstTokenEquals(key, "trainer");
+        }
+
+        private static bool FirstTokenEquals(string key, string token)
+        {
+            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(token))
+                return false;
+            int i = 0;
+            while (i < key.Length && char.IsWhiteSpace(key[i]))
+                i++;
+            int n = 0;
+            while (i + n < key.Length && !char.IsWhiteSpace(key[i + n]))
+                n++;
+            if (n != token.Length)
+                return false;
+            return string.Compare(key, i, token, 0, n, StringComparison.OrdinalIgnoreCase) == 0;
         }
 
         internal static bool HasFleetAfterburner(string key)
@@ -253,6 +279,280 @@ namespace Oritasy
             return IsVanillaDefinition(def);
         }
 
+        private static readonly Dictionary<int, bool> BiaGoCache = new Dictionary<int, bool>(64);
+        private static readonly Dictionary<int, bool> IcarusAcCache = new Dictionary<int, bool>(128);
+        private static Type _biaMfdType;
+        private static Type _biaRadarType;
+        private static Type _biaAirframeType;
+        private static FieldInfo _biaCompleteField;
+        private static bool _biaTypesTried;
+        private static int _localFrame = -1;
+        private static Aircraft _localAc;
+
+        /// <summary>One GameManager.GetLocalAircraft per rendered frame (shared by Harmony prefixes).</summary>
+        internal static Aircraft CachedLocal()
+        {
+            int frame = Time.frameCount;
+            if (frame == _localFrame)
+                return _localAc;
+            _localFrame = frame;
+            _localAc = null;
+            try { GameManager.GetLocalAircraft(out _localAc); }
+            catch { _localAc = null; }
+            return _localAc;
+        }
+
+        /// <summary>Drop FixedUpdate caches when an airframe is destroyed.</summary>
+        internal static void ForgetAircraft(Aircraft aircraft)
+        {
+            if (aircraft == null)
+                return;
+            try
+            {
+                int id = aircraft.GetInstanceID();
+                IcarusAcCache.Remove(id);
+                GameObject go = aircraft.gameObject;
+                if (go != null)
+                    BiaGoCache.Remove(go.GetInstanceID());
+            }
+            catch { }
+        }
+
+        private static void EnsureBiaTypes()
+        {
+            if (_biaTypesTried)
+                return;
+            _biaTypesTried = true;
+            try
+            {
+                _biaMfdType = Type.GetType("BIA.BIAMfd, BIA.Runtime");
+                _biaRadarType = Type.GetType("BIA.BIARadar, BIA.Runtime");
+                _biaAirframeType = Type.GetType("BIA.BIAAirframe, BIA.Runtime");
+                if (_biaAirframeType != null)
+                    _biaCompleteField = _biaAirframeType.GetField("completeAirframe",
+                        BindingFlags.Instance | BindingFlags.Public);
+            }
+            catch { }
+        }
+
+        internal static Component FindBiaMfd(GameObject root)
+        {
+            if (root == null)
+                return null;
+            EnsureBiaTypes();
+            if (_biaMfdType == null)
+                return null;
+            try { return root.GetComponentInChildren(_biaMfdType, true); }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Official Blueprinter hangar J 35 Draken (jsonKey SaabJ35). Not the BIA clone.
+        /// </summary>
+        internal static bool IsOfficialHangarDraken(string key)
+        {
+            if (string.IsNullOrEmpty(key) || IsDrakenBiaClone(key))
+                return false;
+            return string.Equals(key, "SaabJ35", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "J-35", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Icarus .baas copy with BIAMfd (jsonKey SaabJ35BIA).</summary>
+        internal static bool IsDrakenBiaClone(string key)
+        {
+            if (string.IsNullOrEmpty(key))
+                return false;
+            return string.Equals(key, "SaabJ35BIA", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "J-35B", StringComparison.OrdinalIgnoreCase)
+                || ContainsAny(key, "J35BIA", "J-35BIA");
+        }
+
+        /// <summary>
+        /// Finished sit-on-wheels BIA airframe (BIAAirframe.completeAirframe).
+        /// Cube templates omit the component. Official .nobp SaabJ35 is not BIA.
+        /// </summary>
+        internal static bool IsCompleteBiaAirframe(Aircraft aircraft)
+        {
+            if (aircraft == null)
+                return false;
+            GameObject go = null;
+            try { go = aircraft.gameObject; }
+            catch { }
+            if (IsCompleteBiaAirframe(go))
+                return true;
+            return IsDrakenBiaClone(GetKey(aircraft));
+        }
+
+        internal static bool IsCompleteBiaAirframe(GameObject root)
+        {
+            if (root == null)
+                return false;
+            EnsureBiaTypes();
+            if (_biaAirframeType == null)
+                return false;
+            try
+            {
+                Component c = root.GetComponent(_biaAirframeType);
+                if (c == null)
+                    c = root.GetComponentInChildren(_biaAirframeType, true);
+                if (c == null)
+                    return false;
+                if (_biaCompleteField == null)
+                    return true;
+                object v = _biaCompleteField.GetValue(c);
+                if (v is bool)
+                    return (bool)v;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>BIA avionics on a live airframe (BIAMfd / BIARadar). Does not need Icarus.</summary>
+        internal static bool HasBiaAvionics(GameObject root)
+        {
+            if (root == null)
+                return false;
+            int id = 0;
+            try { id = root.GetInstanceID(); }
+            catch { return false; }
+            bool cached;
+            if (BiaGoCache.TryGetValue(id, out cached))
+                return cached;
+            cached = ScanBiaAvionics(root);
+            BiaGoCache[id] = cached;
+            return cached;
+        }
+
+        private static bool ScanBiaAvionics(GameObject root)
+        {
+            EnsureBiaTypes();
+            try
+            {
+                if (_biaMfdType != null && root.GetComponentInChildren(_biaMfdType, true) != null)
+                    return true;
+                if (_biaRadarType != null && root.GetComponentInChildren(_biaRadarType, true) != null)
+                    return true;
+            }
+            catch { }
+            if (_biaMfdType != null || _biaRadarType != null)
+                return false;
+            // BIA.Runtime not loaded — one hierarchy walk, then cached.
+            MonoBehaviour[] all = null;
+            try { all = root.GetComponentsInChildren<MonoBehaviour>(true); }
+            catch { return false; }
+            if (all == null)
+                return false;
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] == null)
+                    continue;
+                string n = all[i].GetType().Name;
+                if (n == "BIAMfd" || n == "BIARadar" || n == "BIACountermeasures" || n == "BIAAirbrake")
+                    return true;
+            }
+            return false;
+        }
+
+        internal static bool IsBiaAircraft(Aircraft aircraft)
+        {
+            if (aircraft == null)
+                return false;
+            GameObject go = null;
+            try { go = aircraft.gameObject; }
+            catch { }
+            if (HasBiaAvionics(go))
+                return true;
+            AircraftDefinition def = TryGetDefinition(aircraft);
+            if (def != null && HasBiaAvionics(def.unitPrefab))
+                return true;
+            return IsDrakenBiaClone(GetKey(aircraft));
+        }
+
+        /// <summary>Cube Wyvern / XE J-35 only. Official SaabJ35.nobp is not this.</summary>
+        internal static bool IsJ35WyvernKey(string key)
+        {
+            if (string.IsNullOrEmpty(key))
+                return false;
+            if (IsOfficialHangarDraken(key) || IsDrakenBiaClone(key))
+                return false;
+            if (string.Equals(key, "J35XE_Wyvern", StringComparison.Ordinal)
+                || string.Equals(key, "J35_Draken", StringComparison.Ordinal))
+                return true;
+            if (ContainsAny(key, "J-35XE", "J35XE"))
+                return true;
+            return ContainsAny(key, "J-35", "J35")
+                && ContainsAny(key, "Draken", "Wyvern", "飞龙");
+        }
+
+        /// <summary>
+        /// Wheel-plane sit. Official hangar Draken + BIA clone. Cube Wyvern snaps.
+        /// </summary>
+        internal static bool IsSaabJ35Sit(string key)
+        {
+            return IsOfficialHangarDraken(key) || IsDrakenBiaClone(key);
+        }
+
+        /// <summary>Icarus/BIA airframe that is not a vanilla XE reskin.</summary>
+        internal static bool IsIcarusOnlyDefinition(AircraftDefinition def)
+        {
+            if (def == null || !IsIcarusDefinition(def))
+                return false;
+            return !IsVanillaDefinition(def);
+        }
+
+        /// <summary>BIA airframe. Icarus AircraftDetail is only a hangar loader, not identity.</summary>
+        internal static bool IsIcarusDefinition(AircraftDefinition def)
+        {
+            if (def == null)
+                return false;
+            if (def.unitPrefab != null && HasBiaAvionics(def.unitPrefab))
+                return true;
+            if (IsOfficialHangarDraken(def.jsonKey))
+                return false;
+            if (IsJ35WyvernKey(def.jsonKey) || IsDrakenBiaClone(def.jsonKey))
+                return true;
+            return IcarusAircraftRegistry.Contains(def);
+        }
+
+        internal static bool IsIcarusAircraft(Aircraft aircraft)
+        {
+            if (aircraft == null)
+                return false;
+            int id = 0;
+            try { id = aircraft.GetInstanceID(); }
+            catch { return false; }
+            bool cached;
+            if (IcarusAcCache.TryGetValue(id, out cached))
+                return cached;
+            cached = false;
+            if (IsBiaAircraft(aircraft))
+                cached = true;
+            else
+            {
+                AircraftDefinition def = TryGetDefinition(aircraft);
+                if (def != null && IsIcarusDefinition(def))
+                    cached = true;
+                else
+                {
+                    string key = GetKey(aircraft);
+                    cached = IcarusAircraftRegistry.ContainsKey(key);
+                }
+            }
+            IcarusAcCache[id] = cached;
+            return cached;
+        }
+
+        /// <summary>Icarus/BIA plane that is not a vanilla fleet reskin.</summary>
+        internal static bool IsIcarusOnly(Aircraft aircraft)
+        {
+            if (!IsIcarusAircraft(aircraft))
+                return false;
+            return !IsKnownFleet(GetKey(aircraft));
+        }
+
         internal static bool IsCoinAircraft(Aircraft aircraft)
         {
             if (aircraft == null)
@@ -269,11 +569,20 @@ namespace Oritasy
         {
             if (aircraft == null)
                 return false;
+            // Icarus / BIA hangar jets are not the XE fleet. XE FBW/thrust
+            // rewrite fights the Draken Delta SAS and feels like reversed sticks.
+            if (IsIcarusOnly(aircraft) || IsCompleteBiaAirframe(aircraft)
+                || IsDrakenBiaClone(GetKey(aircraft))
+                || IsOfficialHangarDraken(GetKey(aircraft)))
+                return false;
             if (IsCoinAircraft(aircraft))
                 return true;
             AircraftDefinition def = TryGetDefinition(aircraft);
             if (def != null)
-                return IsXeDefinition(def);
+            {
+                if (IsXeDefinition(def))
+                    return true;
+            }
             if (Plugin.AffectAllAircraft != null && Plugin.AffectAllAircraft.Value)
                 return true;
             string n = aircraft.name != null ? aircraft.name : string.Empty;
@@ -312,8 +621,13 @@ namespace Oritasy
                 return 4.34f;
             if (IsUh90(key))
                 return 4f;
+            if (IsVl49(key))
+                return 6.5f;
             if (IsKr67(key))
                 return 3.2f;
+            if (!IsKnownFleet(key)
+                && (IsJ35WyvernKey(key) || IcarusAircraftRegistry.ContainsKey(key)))
+                return 1f;
             return Plugin.PowerMultiplier != null ? Plugin.PowerMultiplier.Value : 2.7f;
         }
 

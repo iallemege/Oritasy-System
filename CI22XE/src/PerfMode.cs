@@ -61,8 +61,8 @@ namespace Oritasy
 
             Preset = config.Bind("Performance", "Preset", "Auto",
                 "Performance preset: Auto, Low, Med, High. Auto picks Low on weak hardware. LowEndMode forces Low.");
-            LowEndMode = config.Bind("Presentation", "LowEndMode", true,
-                "Low-end performance mode (F1). Lighter ticks / engine quality. Radar MFD, missile camera, chase HUD stay on.");
+            LowEndMode = config.Bind("Presentation", "LowEndMode", false,
+                "Low-end performance mode (F1). Lighter ticks. Radar MFD, missile camera, chase HUD stay on.");
             PerfRevision = config.Bind("Performance", "PerfRevision", 0,
                 "Internal: raised when applying one-shot LowEnd defaults.");
 
@@ -106,7 +106,6 @@ namespace Oritasy
             RefreshTier(true);
             if (on)
                 ApplyRuntimeLowGates(false);
-            EngineQualityService.ApplyNow();
         }
 
         /// <summary>Profile UI: Low / Med / High / Auto. Low also sets LowEndMode.</summary>
@@ -139,8 +138,8 @@ namespace Oritasy
 
             GUILayout.Label(UiLang.T("Performance", "性能"), GUILayout.ExpandWidth(true));
             GUILayout.Label(UiLang.T(
-                "Low-end mode cuts vapor / OnGUI polish / engine quality. Radar MFD, missile camera, and chase HUD stay on.",
-                "低配降低水汽 / OnGUI 抛光 / 引擎画质。雷达 MFD、导弹镜头、尾追 HUD 保持开启。"),
+                "Low-end mode cuts vapor / OnGUI polish. Radar MFD, missile camera, and chase HUD stay on.",
+                "低配降低水汽 / OnGUI 抛光。雷达 MFD、导弹镜头、尾追 HUD 保持开启。"),
                 GUILayout.ExpandWidth(true));
             GUILayout.Label(UiLang.T(
                 "4 worker threads (disk / WAV). After a hitch, hunt/polish pause — HUD still draws every frame.",
@@ -214,7 +213,6 @@ namespace Oritasy
                 + " · 飞行分析 ≤" + FlightSampleHzCap().ToString("0.0") + " Hz"),
                 GUILayout.ExpandWidth(true));
             MotionInterpService.DrawProfileToggle();
-            EngineQualityService.DrawProfileToggle();
         }
 
         private static void DrawTierButton(string en, string zh, string activeKey)
@@ -299,11 +297,11 @@ namespace Oritasy
             bool chase = Plugin.ShowAircraftChaseHud != null && Plugin.ShowAircraftChaseHud.Value;
             bool rwr = Plugin.ShowAircraftRwr != null && Plugin.ShowAircraftRwr.Value;
             bool g = Plugin.ShowGMeter != null && Plugin.ShowGMeter.Value;
-            bool mfd = RadarMfdOverlay.Enabled != null && RadarMfdOverlay.Enabled.Value;
+            bool mfd = HudPackState.RadarMfdEnabled != null && HudPackState.RadarMfdEnabled.Value;
             bool brand = Plugin.ShowHudBrand != null && Plugin.ShowHudBrand.Value;
-            bool ccip = RocketCcipHud.Enabled != null && RocketCcipHud.Enabled.Value
-                && !RocketCcipHud.StandalonePresent;
-            bool ils = AirportIlsHud.Enabled;
+            bool ccip = HudPackState.RocketCcipEnabled != null && HudPackState.RocketCcipEnabled.Value
+                && !HudPackState.RocketCcipStandalone;
+            bool ils = HudPackState.IlsEnabled;
             return !(cam || chase || rwr || g || mfd || brand || ccip || ils);
         }
 
@@ -327,9 +325,16 @@ namespace Oritasy
                         Plugin.MissileCamera.Value = true;
                     if (Plugin.ShowAircraftChaseHud != null)
                         Plugin.ShowAircraftChaseHud.Value = true;
-                    if (RadarMfdOverlay.Enabled != null)
-                        RadarMfdOverlay.Enabled.Value = true;
+                    if (HudPackState.RadarMfdEnabled != null)
+                        HudPackState.RadarMfdEnabled.Value = true;
                     PerfRevision.Value = 51;
+                }
+                if (PerfRevision.Value < 58)
+                {
+                    if (LowEndMode != null && LowEndMode.Value)
+                        LowEndMode.Value = false;
+                    RefreshTier(true);
+                    PerfRevision.Value = 58;
                 }
             }
             catch { }
@@ -343,12 +348,12 @@ namespace Oritasy
         {
             try
             {
-                if (RadarMfdOverlay.ClutterIntensity != null
-                    && RadarMfdOverlay.ClutterIntensity.Value > 0.3f)
-                    RadarMfdOverlay.ClutterIntensity.Value = 0.25f;
-                if (RadarMfdOverlay.PersistenceSec != null
-                    && RadarMfdOverlay.PersistenceSec.Value > 1.3f)
-                    RadarMfdOverlay.PersistenceSec.Value = 1.2f;
+                if (HudPackState.RadarClutter != null
+                    && HudPackState.RadarClutter.Value > 0.3f)
+                    HudPackState.RadarClutter.Value = 0.25f;
+                if (HudPackState.RadarPersistence != null
+                    && HudPackState.RadarPersistence.Value > 1.3f)
+                    HudPackState.RadarPersistence.Value = 1.2f;
                 if (Plugin.EnhancedAirflow != null && (force || Plugin.EnhancedAirflow.Value))
                     Plugin.EnhancedAirflow.Value = false;
                 FlightAnalysisBridge.ApplyLowSampleHz(4.5f);

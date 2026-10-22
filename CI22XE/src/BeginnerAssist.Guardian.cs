@@ -131,20 +131,20 @@ namespace Oritasy
             // Short re-arm so a lingering departure can be caught immediately.
             _nextGuardianAt = Time.unscaledTime + Mathf.Min(cd, 1.2f);
             RestoreGuardianBaselines(ac);
-            if (_guardianHadUserAp && PlayerAutopilot.IsEngaged)
+            bool apOn = PlayerAutopilot.IsEngaged;
+            if (_guardianHadUserAp && apOn)
             {
-                // Keep F2 AP — restore prior mode (LAND/ORBIT/…) instead of killing it.
                 PlayerAutopilot.RestoreModeAfterGuardian(_guardianSavedMode);
                 if (flashHandback)
                     Flash("GUARDIAN  →  AP");
             }
-            else if (flashHandback && PlayerAutopilot.IsEngaged)
+            else if (apOn)
             {
-                PlayerAutopilot.DisengageFromOutside(true);
-                Flash("GUARDIAN  →  PILOT");
+                // Guardian StraightHold must always release AP (even flashHandback=false).
+                PlayerAutopilot.DisengageFromOutside(flashHandback || ac == null);
+                if (flashHandback)
+                    Flash("GUARDIAN  →  PILOT");
             }
-            else if (PlayerAutopilot.IsEngaged && ac == null)
-                PlayerAutopilot.DisengageFromOutside(false);
             _guardianHadUserAp = false;
         }
 

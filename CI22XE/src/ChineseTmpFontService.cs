@@ -61,6 +61,20 @@ namespace Oritasy
             }
         }
 
+        /// <summary>
+        /// Encyclopedia / TMP can take Chinese without a missing-glyph log storm.
+        /// </summary>
+        internal static bool CanPaintCjk
+        {
+            get
+            {
+                DetectExternalFallback();
+                if (_justInCasePresent)
+                    return true;
+                return _cjkTmpAsset != null;
+            }
+        }
+
         // Kept name used by older call sites
         internal static bool JustInCasePresent
         {
@@ -133,6 +147,9 @@ namespace Oritasy
             }
         }
 
+        private static bool _menuAssignDone;
+        private static bool _missionFallbackDone;
+
         internal static void Tick()
         {
             if (ChineseFontPatch.Enabled != null && !ChineseFontPatch.Enabled.Value)
@@ -146,15 +163,34 @@ namespace Oritasy
             if (_sourceFont == null)
                 return;
 
+            bool menu = false;
+            try { menu = OritasyPresentation.MainMenuActive; }
+            catch { }
+            if (menu && _menuAssignDone)
+                return;
+
+            if (!menu)
+            {
+                // Combat TMP nametags make FindObjectsOfType a multi-second hitch.
+                if (!_missionFallbackDone)
+                {
+                    EnsureCreatedFallbackAsset();
+                    InjectGlobalFallback();
+                    _missionFallbackDone = true;
+                }
+                return;
+            }
+
             float now = Time.unscaledTime;
             if (now < _nextInjectAt)
                 return;
-            _nextInjectAt = now + Mathf.Max(0.75f, PerfMode.ChineseFontScanInterval() * 0.5f);
+            _nextInjectAt = now + Mathf.Max(5f, PerfMode.ChineseFontScanInterval());
 
             PatchAllFontAssets();
             EnsureCreatedFallbackAsset();
             InjectGlobalFallback();
             AssignFontsOnChineseTmpTexts();
+            _menuAssignDone = true;
         }
 
         internal static void EnsureReady()
@@ -171,6 +207,43 @@ namespace Oritasy
         }
 
         /// <summary>After ZH write: ensure glyphs exist on the active TMP font.</summary>
+        private static bool ShouldSkipHudTmp(Component c)
+        {
+            if (c == null)
+                return false;
+            try
+            {
+                if (c.GetComponentInParent<FlightHud>() != null)
+                    return true;
+                if (c.GetComponentInParent<CombatHUD>() != null)
+                    return true;
+                if (c.GetComponentInParent<StatusDisplay>() != null)
+                    return true;
+                if (c.GetComponentInParent<HeadMountedDisplay>() != null)
+                    return true;
+                if (c.GetComponentInParent<HUDAppManager>() != null)
+                    return true;
+            }
+            catch { }
+            Transform x = c.transform;
+            int hops = 0;
+            while (x != null && hops < 12)
+            {
+                string n = x.name;
+                if (!string.IsNullOrEmpty(n))
+                {
+                    string l = n.ToLowerInvariant();
+                    if (l.IndexOf("flighthud") >= 0 || l.IndexOf("hudextras") >= 0
+                        || l.IndexOf("hmd") >= 0 || l == "hud" || l.StartsWith("hud"))
+                        return true;
+                }
+                try { x = x.parent; }
+                catch { break; }
+                hops++;
+            }
+            return false;
+        }
+
         internal static void ApplyToTmpInstance(object tmpText)
         {
             if (tmpText == null)
@@ -185,6 +258,12 @@ namespace Oritasy
             try
             {
                 object fontAsset = _tmpFontProp.GetValue(tmpText, null);
+                UnityEngine.Object fontUo = fontAsset as UnityEngine.Object;
+                if (IsHudFontAsset(fontUo))
+                    return;
+                Component c = tmpText as Component;
+                if (c != null && ShouldSkipHudTmp(c))
+                    return;
                 string text = null;
                 if (_tmpTextProp != null)
                     text = _tmpTextProp.GetValue(tmpText, null) as string;
@@ -382,30 +461,26 @@ namespace Oritasy
 
         private static void PatchAllFontAssets()
         {
-            if (_tmpFontAssetType == null || _sourceFont == null)
-                return;
-            UnityEngine.Object[] all;
-            try { all = Resources.FindObjectsOfTypeAll(_tmpFontAssetType); }
-            catch { return; }
-            if (all == null)
-                return;
+            // Do not rewrite vanilla TMP atlas fonts. HUD digits become black
+            // squares when a bitmap HUD font is forced Dynamic + YaHei.
+        }
 
-            int newly = 0;
-            for (int i = 0; i < all.Length; i++)
-            {
-                UnityEngine.Object o = all[i];
-                if (o == null || ReferenceEquals(o, _cjkTmpAsset))
-                    continue;
-                if (PatchOneFontAsset(o))
-                    newly++;
-            }
-
-            if (!_loggedPatch && Plugin.Log != null && (_patchCount > 0 || newly > 0))
-            {
-                _loggedPatch = true;
-                Plugin.Log.LogInfo("ChineseTmpFontService: Dynamic+YaHei patched TMP fonts="
-                    + _patchCount + " (" + _sourceName + ")");
-            }
+        private static bool IsHudFontAsset(UnityEngine.Object uo)
+        {
+            if (uo == null)
+                return false;
+            string n = uo.name;
+            if (string.IsNullOrEmpty(n))
+                return false;
+            string l = n.ToLowerInvariant();
+            return l.IndexOf("hud") >= 0
+                || l.IndexOf("hmd") >= 0
+                || l.IndexOf("digital") >= 0
+                || l.IndexOf("compass") >= 0
+                || l.IndexOf("ladder") >= 0
+                || l.IndexOf("waterline") >= 0
+                || l.IndexOf("mfd") >= 0
+                || l.IndexOf("status") >= 0;
         }
 
         private static bool PatchOneFontAsset(object fontAsset)
@@ -418,6 +493,11 @@ namespace Oritasy
             int id = uo.GetInstanceID();
             if (PatchedAssetIds.Contains(id))
                 return false;
+            if (IsHudFontAsset(uo))
+            {
+                PatchedAssetIds.Add(id);
+                return false;
+            }
 
             try
             {
@@ -445,7 +525,7 @@ namespace Oritasy
                 _patchCount++;
                 // Warm common menu glyphs so first-frame tofu is less likely.
                 TryAddChars(fontAsset,
-                    "单人游戏多人设置百科创意工坊退出按键绑定操控俯仰偏航滚转油门刹车起落架雷达武器干扰弹视角地图聊天确认取消");
+                    "单人游戏多人设置百科创意工坊退出按键绑定操控俯仰偏航滚转油门刹车起落架雷达武器干扰弹视角地图聊天确认取消正在干扰目标冷却成功失败弹射无法开火定向锁定超出距离友军按住开始");
                 return true;
             }
             catch (Exception ex)

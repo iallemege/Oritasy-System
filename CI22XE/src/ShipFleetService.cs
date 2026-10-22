@@ -77,6 +77,7 @@ namespace Oritasy
                 TryBuffShipPropulsion(props[i]);
 
             AaaHitService.TryBuffHost(ship);
+            MorayRuntime.TrySetupShip(ship);
         }
     }
 }

@@ -326,8 +326,6 @@ namespace WeXon
             }
             if (AgmTWeapon.IsPoweredGs25Sub(m))
                 return false;
-            if (m != null && Plugin.ShouldSuppressSeekerSelfDestruct(m))
-                return false;
             return true;
         }
     }

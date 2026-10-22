@@ -25,6 +25,8 @@ namespace Oritasy
         internal static ConfigEntry<float> PersistenceSec;
 
         private static bool _bound;
+        private static MethodInfo _empLocalStunned;
+        private static float _empRetryAt;
         private static FieldInfo _cockpitTacField;
         private static FieldInfo _radarOnField;
         private static FieldInfo _mfdActiveLeft;
@@ -49,9 +51,11 @@ namespace Oritasy
         private static readonly List<Contact> _contacts = new List<Contact>(48);
         private static readonly List<PersistHit> _persist = new List<PersistHit>(256);
         private static readonly List<ClutterSpeck> _clutter = new List<ClutterSpeck>(180);
+        private static readonly HashSet<int> SeenScratch = new HashSet<int>();
         private static float _nextClutterAt;
-        private static int _clutterSeed;
+        private static float _nextContactAt;
         private static Texture2D _white;
+        private static Texture2D _discTex;
         private static GUIStyle _label;
         private static GUIStyle _tiny;
 
@@ -133,7 +137,7 @@ namespace Oritasy
 
             float now = Time.unscaledTime;
             float detectEvery = PerfMode.IsLow ? 0.55f : 0.2f;
-            if (now >= _nextDetectAt)
+            if (!EmpMfdBlocked() && now >= _nextDetectAt)
             {
                 _nextDetectAt = now + detectEvery;
                 DetectRadarDisplay();
@@ -153,7 +157,11 @@ namespace Oritasy
             _sweepAngle = RadarMfdMathService.AdvanceSweep(
                 _sweepAngle, degPerSec, Time.unscaledDeltaTime);
 
-            RefreshContacts();
+            if (now >= _nextContactAt)
+            {
+                _nextContactAt = now + (PerfMode.IsLow ? 0.15f : 0.05f);
+                RefreshContacts();
+            }
             UpdateClutter(now);
             PaintSweepHits(now);
             DecayPersist(now);
@@ -161,6 +169,8 @@ namespace Oritasy
 
         internal static void Draw()
         {
+            if (EmpMfdBlocked())
+                return;
             if (Enabled == null || !Enabled.Value || !_radarDisplaying)
                 return;
             Event e = Event.current;
@@ -231,6 +241,48 @@ namespace Oritasy
             GUI.color = prev;
         }
 
+        internal static bool TryGetScreenRect(out Rect rect)
+        {
+            rect = _screenRect;
+            return _hasScreenRect && rect.width > 12f && rect.height > 12f;
+        }
+
+        private static bool EmpMfdBlocked()
+        {
+            if (_empLocalStunned == null && Time.unscaledTime >= _empRetryAt)
+            {
+                _empRetryAt = Time.unscaledTime + 4f;
+                try
+                {
+                    Assembly[] asms = AppDomain.CurrentDomain.GetAssemblies();
+                    for (int i = 0; i < asms.Length; i++)
+                    {
+                        Type t = asms[i].GetType("Oritasy.EmpPulseService");
+                        if (t == null)
+                            continue;
+                        MethodInfo m = t.GetMethod("LocalPlayerStunned",
+                            BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                        if (m != null)
+                        {
+                            _empLocalStunned = m;
+                            break;
+                        }
+                    }
+                }
+                catch { }
+            }
+            if (_empLocalStunned == null)
+                return false;
+            try
+            {
+                return (bool)_empLocalStunned.Invoke(null, null);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         // ---------- waveform / clutter simulation ----------
 
 
@@ -240,7 +292,6 @@ namespace Oritasy
                 return;
             _nextClutterAt = now + 0.12f;
             _clutter.Clear();
-            _clutterSeed++;
 
             float intensity = ClutterIntensity != null ? ClutterIntensity.Value : 0.65f;
             intensity *= PerfMode.ClutterMul();
@@ -257,25 +308,22 @@ namespace Oritasy
             if (PerfMode.IsLow)
                 _nextClutterAt = now + 0.28f;
 
-            System.Random rng = new System.Random(_clutterSeed * 9973 + (int)(now * 10f));
             for (int i = 0; i < count; i++)
             {
-                // Bias toward near-center (ground returns) via squared range pick
-                float u = (float)rng.NextDouble();
-                float rangeNorm = u * u; // denser near center
-                // Weather-ish band: occasional mid-range patches
-                if (rng.NextDouble() < 0.12)
-                    rangeNorm = 0.35f + 0.45f * (float)rng.NextDouble();
+                float u = UnityEngine.Random.value;
+                float rangeNorm = u * u;
+                if (UnityEngine.Random.value < 0.12f)
+                    rangeNorm = 0.35f + 0.45f * UnityEngine.Random.value;
 
-                float bearing = (float)(rng.NextDouble() * 360.0);
+                float bearing = UnityEngine.Random.value * 360f;
                 float str = RadarMfdMathService.ClutterStrength(
-                    (float)rng.NextDouble(), intensity, aglFactor, rangeNorm, agl);
+                    UnityEngine.Random.value, intensity, aglFactor, rangeNorm, agl);
 
                 ClutterSpeck s;
                 s.BearingDeg = bearing;
                 s.RangeNorm = Mathf.Clamp01(rangeNorm);
                 s.Strength = str;
-                s.Phase = (float)rng.NextDouble() * 6.28f;
+                s.Phase = UnityEngine.Random.value * 6.28f;
                 _clutter.Add(s);
             }
         }
@@ -383,9 +431,11 @@ namespace Oritasy
                         : new Color(1f, 0.4f, 0.28f, a);
                     float mark = 3.5f + 2.5f * a;
                     GUI.DrawTexture(new Rect(p.x - mark * 0.5f, p.y - mark * 0.5f, mark, mark), _white);
-                    // Short radial pulse streak
-                    Vector2 inward = (center - p).normalized;
-                    DrawLine(p, p + inward * (4f + 6f * a), 1.2f);
+                    if (!PerfMode.IsLow)
+                    {
+                        Vector2 inward = (center - p).normalized;
+                        DrawLine(p, p + inward * (4f + 6f * a), 1.2f);
+                    }
                 }
                 else
                 {
@@ -399,6 +449,8 @@ namespace Oritasy
 
         private static void DrawLiveClutter(Vector2 center, float radius, float now)
         {
+            if (PerfMode.IsLow)
+                return;
             float intensity = ClutterIntensity != null ? ClutterIntensity.Value : 0.65f;
             if (intensity <= 0.01f)
                 return;
@@ -424,11 +476,11 @@ namespace Oritasy
         private static void DrawSweepBeam(Vector2 center, float radius, float angleDeg, float beamW)
         {
             float half = beamW * 0.5f;
-            // Soft trailing fan (persistence of beam glow)
-            for (int i = 12; i >= 0; i--)
+            int trails = PerfMode.IsLow ? 4 : 12;
+            for (int i = trails; i >= 0; i--)
             {
                 float ang = angleDeg - i * (half * 0.55f);
-                float t = 1f - i / 12f;
+                float t = 1f - i / (float)trails;
                 float alpha = 0.08f + 0.42f * t * t;
                 GUI.color = new Color(0.3f, 1f, 0.45f, alpha);
                 float ar = ang * Mathf.Deg2Rad;
@@ -446,6 +498,9 @@ namespace Oritasy
             Vector2 t1 = new Vector2(center.x + Mathf.Sin(a1) * radius, center.y - Mathf.Cos(a1) * radius);
             DrawLine(center, t0, 1.2f);
             DrawLine(center, t1, 1.2f);
+
+            if (PerfMode.IsLow)
+                return;
 
             // Range-gate tick marks along the beam (pulse waveform feel)
             GUI.color = new Color(0.4f, 1f, 0.5f, 0.35f);
@@ -596,6 +651,12 @@ namespace Oritasy
                 return;
             }
             _cachedAc = ac;
+            if (IsMig15S(ac))
+            {
+                _radarDisplaying = false;
+                _hasScreenRect = false;
+                return;
+            }
             try { _cachedAgl = ac.radarAlt; }
             catch
             {
@@ -693,7 +754,45 @@ namespace Oritasy
                 TryCaptureMfdRect(anyActive);
             else if (path == RadarMfdDetectGateService.Path.RadarPlusTacRender)
                 TryCaptureTacRect(null, cockpit);
+            if (!AcceptCapturedRect())
+                _hasScreenRect = false;
             MarkRadarOn(reason);
+        }
+
+        private static bool IsMig15S(Aircraft ac)
+        {
+            if (ac == null)
+                return false;
+            AircraftDefinition def = null;
+            try { def = ac.definition as AircraftDefinition; }
+            catch { def = null; }
+            if (def == null)
+                return false;
+            string key = def.jsonKey;
+            if (!string.IsNullOrEmpty(key)
+                && (string.Equals(key, "Aryx_MiG15_KAM", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(key, "Aryx_MiG-15", StringComparison.OrdinalIgnoreCase)))
+                return true;
+            string n = def.unitName != null ? def.unitName : string.Empty;
+            if (n.IndexOf("MiG-15S", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (n.IndexOf("MIG-15S", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return false;
+        }
+
+        private static bool AcceptCapturedRect()
+        {
+            if (!_hasScreenRect)
+                return false;
+            float w = _screenRect.width;
+            float h = _screenRect.height;
+            if (w < 24f || h < 24f)
+                return false;
+            float maxD = Mathf.Min(UiScaleService.Width, UiScaleService.Height) * 0.38f;
+            if (w > maxD || h > maxD)
+                return false;
+            return true;
         }
 
         private static void MarkRadarOn(string reason)
@@ -771,25 +870,6 @@ namespace Oritasy
         {
             _hasScreenRect = false;
             Camera cam = Camera.main;
-            if (cam == null)
-            {
-                try
-                {
-                    Camera[] cams = UnityEngine.Object.FindObjectsOfType<Camera>();
-                    if (cams != null)
-                    {
-                        for (int i = 0; i < cams.Length; i++)
-                        {
-                            if (cams[i] != null && cams[i].enabled)
-                            {
-                                cam = cams[i];
-                                break;
-                            }
-                        }
-                    }
-                }
-                catch { }
-            }
             if (cam == null)
                 return;
 
@@ -1157,7 +1237,7 @@ namespace Oritasy
 
             float rangeM = Mathf.Max(5f, RangeKm != null ? RangeKm.Value : 40f) * 1000f;
             float rangeSq = rangeM * rangeM;
-            HashSet<int> seen = new HashSet<int>();
+            SeenScratch.Clear();
 
             try
             {
@@ -1166,7 +1246,7 @@ namespace Oritasy
                 {
                     List<Unit> dets = radar.detectedTargets;
                     for (int i = 0; i < dets.Count; i++)
-                        AddContact(self, selfHq, origin, heading, dets[i], true, rangeSq, seen);
+                        AddContact(self, selfHq, origin, heading, dets[i], true, rangeSq, SeenScratch);
                 }
             }
             catch { }
@@ -1184,7 +1264,7 @@ namespace Oritasy
                             continue;
                         if ((ac.transform.position - origin).sqrMagnitude > rangeSq)
                             continue;
-                        if (AddContact(self, selfHq, origin, heading, ac, false, rangeSq, seen))
+                        if (AddContact(self, selfHq, origin, heading, ac, false, rangeSq, SeenScratch))
                             added++;
                     }
                 }
@@ -1283,14 +1363,34 @@ namespace Oritasy
             }
         }
 
+        private static Texture2D DiscTex()
+        {
+            if (_discTex != null)
+                return _discTex;
+            const int s = 64;
+            _discTex = new Texture2D(s, s, TextureFormat.ARGB32, false);
+            _discTex.wrapMode = TextureWrapMode.Clamp;
+            _discTex.filterMode = FilterMode.Bilinear;
+            float mid = (s - 1) * 0.5f;
+            for (int y = 0; y < s; y++)
+            {
+                for (int x = 0; x < s; x++)
+                {
+                    float dx = x - mid;
+                    float dy = y - mid;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy) / (mid + 0.5f);
+                    float a = d <= 0.92f ? 1f : (d >= 1f ? 0f : 1f - (d - 0.92f) / 0.08f);
+                    _discTex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+            }
+            _discTex.Apply(false, true);
+            return _discTex;
+        }
+
         private static void FillCircle(Vector2 c, float r)
         {
-            int rings = 10;
-            for (int i = rings; i >= 1; i--)
-            {
-                float rr = r * i / rings;
-                StrokeCircle(c, rr, Mathf.Max(2f, r / rings + 1f), 20 + i);
-            }
+            float d = r * 2f;
+            GUI.DrawTexture(new Rect(c.x - r, c.y - r, d, d), DiscTex());
         }
 
         private static void StrokeCircle(Vector2 c, float r, float thick, int segs)

@@ -66,7 +66,7 @@ namespace Oritasy
 
         internal static void Tick()
         {
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
             {
                 // F6 has its own RWR on OritasyHud
                 Unbind();
@@ -110,11 +110,11 @@ namespace Oritasy
 
         internal static void Draw()
         {
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
                 return;
 
             Aircraft ac = ResolveLocal();
-            if (Plugin.AllowThirdPersonUi)
+            if (F11HintWanted())
                 DrawCornerHint(ac);
 
             if (_layoutMenuOpen)
@@ -194,7 +194,7 @@ namespace Oritasy
 
         private static void OpenLayoutMenu()
         {
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
                 return;
             if (AircraftManeuverGui.IsOpen)
                 AircraftManeuverGui.Close();
@@ -224,11 +224,16 @@ namespace Oritasy
             ReleaseCursor();
         }
 
+        private static bool F11HintWanted()
+        {
+            return Plugin.ShowF11Hint == null || Plugin.ShowF11Hint.Value;
+        }
+
         private static void DrawLayoutMenu()
         {
             EnsureStyles();
             float w = 380f;
-            float h = 280f;
+            float h = 392f;
             Rect box = new Rect((UiScaleService.Width - w) * 0.5f, (UiScaleService.Height - h) * 0.5f, w, h);
             Color prev = GUI.color;
             GUI.color = new Color(0.06f, 0.08f, 0.1f, 0.92f);
@@ -252,7 +257,42 @@ namespace Oritasy
                     Plugin.ShowAircraftRwr.Value = show;
                 _overlayOn = show;
             }
-            y += 28f;
+            y += 26f;
+
+            if (Plugin.ShowF11Hint != null)
+            {
+                bool hint = GUI.Toggle(new Rect(box.x + 16f, y, box.width - 32f, 22f),
+                    Plugin.ShowF11Hint.Value,
+                    UiLang.T(" Show F11 tip chip", " 显示 F11 提示条"));
+                if (hint != Plugin.ShowF11Hint.Value)
+                    Plugin.ShowF11Hint.Value = hint;
+            }
+            y += 26f;
+
+            if (Plugin.ShowThirdPersonUi != null)
+            {
+                bool all = GUI.Toggle(new Rect(box.x + 16f, y, box.width - 32f, 22f),
+                    Plugin.ShowThirdPersonUi.Value,
+                    UiLang.T(" Show all HUD overlays", " 显示全部 HUD"));
+                if (all != Plugin.ShowThirdPersonUi.Value)
+                    Plugin.ShowThirdPersonUi.Value = all;
+            }
+            y += 26f;
+            if (Plugin.ShowStickDisplay != null)
+            {
+                bool stick = GUI.Toggle(new Rect(box.x + 16f, y, box.width - 32f, 22f),
+                    Plugin.ShowStickDisplay.Value,
+                    UiLang.T(" Stick / throttle display", " 杆量显示"));
+                if (stick != Plugin.ShowStickDisplay.Value)
+                    Plugin.ShowStickDisplay.Value = stick;
+            }
+            y += 22f;
+            GUI.Label(new Rect(box.x + 16f, y, box.width - 32f, 32f),
+                UiLang.T(
+                    "Off: hide RWR disc, G-meter, chase HUD, missile camera, CCIP, ILS, MFD. F11 menu stays.",
+                    "关：隐藏 RWR 圆盘、G 表、追逐准星、导弹相机、CCIP、ILS、MFD。F11 菜单仍可用。"),
+                _menuLabel);
+            y += 36f;
 
             float nx = Plugin.AircraftRwrNormX != null ? Plugin.AircraftRwrNormX.Value : 0.12f;
             float ny = Plugin.AircraftRwrNormY != null ? Plugin.AircraftRwrNormY.Value : 0.88f;

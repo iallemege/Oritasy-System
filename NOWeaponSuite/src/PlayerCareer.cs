@@ -775,6 +775,18 @@ namespace WeXon
                     es.SetSelectedGameObject(null);
             }
             catch { }
+#else
+            if (!_cursorHeld)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                _cursorHeld = true;
+            }
+            else
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
 #endif
         }
 
@@ -784,6 +796,8 @@ namespace WeXon
             if (!_cursorHeld)
                 return;
             Oritasy.OritasyCursor.Release();
+            _cursorHeld = false;
+#else
             _cursorHeld = false;
 #endif
         }
@@ -1048,12 +1062,18 @@ namespace WeXon
             return CareerXpMathService.XpToNext(_xp);
         }
 
+#if !ORITASY_COMBINED
         private static MainMenu _cachedMainMenu;
         private static float _nextMainMenuProbe;
         private static bool _cachedIsMainMenu;
+#endif
 
         private static bool IsMainMenu()
         {
+#if ORITASY_COMBINED
+            try { return Oritasy.OritasyPresentation.MainMenuActive; }
+            catch { return false; }
+#else
             // Always honor probe interval — including when MainMenu is missing in-mission.
             if (Time.unscaledTime < _nextMainMenuProbe)
                 return _cachedIsMainMenu;
@@ -1072,6 +1092,7 @@ namespace WeXon
                 _cachedIsMainMenu = false;
             }
             return _cachedIsMainMenu;
+#endif
         }
 
         private static bool IsPlayerPiloted(Aircraft ac)
@@ -1243,12 +1264,16 @@ namespace WeXon
             GUILayout.Space(12f);
             GUILayout.Label(ModUiLang.T("Loadout", "挂载设置"), _titleStyle);
             DrawUnrestrictedMountToggle();
+            DrawOritasyNukeToggle();
 
             GUILayout.Space(12f);
             DrawQolSection();
 
             GUILayout.Space(12f);
             DrawAiBrainSection();
+
+            GUILayout.Space(12f);
+            DrawInfantrySection();
 
             GUILayout.Space(12f);
             DrawDynamicMusicBetaSection();
@@ -1529,9 +1554,6 @@ namespace WeXon
             GUILayout.Label(ModUiLang.T(
                 "4) Stats: PvP / AI / red FTK (friendly). FTK never grants XP.",
                 "4）统计：PvP / AI / 红色误伤·友军。误伤永不给经验。"), _bodyStyle);
-            GUILayout.Label(ModUiLang.T(
-                "6) Missile Editor is a standalone program (MissileEditor.exe + MissileEditor.dll), not this Profile panel.",
-                "6）导弹编辑器是独立程序（MissileEditor.exe + MissileEditor.dll），不在本档案面板内。"), _bodyStyle);
             GUILayout.Space(10f);
             GUILayout.Label(ModUiLang.T("Controls", "操控说明"), _titleStyle);
             GUILayout.Label(ModUiLang.T(
@@ -1552,6 +1574,7 @@ namespace WeXon
             GUILayout.Space(10f);
             GUILayout.Label(ModUiLang.T("Loadout", "挂载设置"), _titleStyle);
             DrawUnrestrictedMountToggle();
+            DrawOritasyNukeToggle();
         }
 
         private static void DrawPerformanceSection()
@@ -1615,6 +1638,22 @@ namespace WeXon
                 "增强 AI 控制不可用。"), _bodyStyle);
         }
 
+        private static void DrawInfantrySection()
+        {
+            try
+            {
+                System.Type t = System.Type.GetType("Oritasy.InfantryModeService, Oritasy")
+                    ?? System.Type.GetType("Oritasy.InfantryModeService");
+                if (t == null)
+                    return;
+                MethodInfo draw = t.GetMethod("DrawProfileSection",
+                    BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+                if (draw != null)
+                    draw.Invoke(null, null);
+            }
+            catch { }
+        }
+
         private static void DrawDynamicMusicBetaSection()
         {
             // Oritasy.DynamicMusic lives in the aircraft / merged pack — reflection keeps WeXon-only builds compiling.
@@ -1655,19 +1694,6 @@ namespace WeXon
                 }
             }
             catch { }
-            try
-            {
-                System.Type wear = System.Type.GetType("Oritasy.AirframeWearGui, Oritasy")
-                    ?? System.Type.GetType("Oritasy.AirframeWearGui");
-                if (wear != null)
-                {
-                    MethodInfo wearDraw = wear.GetMethod("DrawProfileToggle",
-                        BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-                    if (wearDraw != null)
-                        wearDraw.Invoke(null, null);
-                }
-            }
-            catch { }
         }
 
         private static void DrawFlightAnalysisSection()
@@ -1694,7 +1720,54 @@ namespace WeXon
                 }
             }
             catch { }
-            return ModUiLang.EnglishOnlyEdition ? "0.0.9.193D Special Edition" : "0.0.9.193C";
+            return ModUiLang.EnglishOnlyEdition ? "0.0.9.197D Special Edition" : "0.0.9.197C";
+        }
+
+        private static void DrawOritasyNukeToggle()
+        {
+            bool on = true;
+            try
+            {
+                if (Plugin.EnableNukeVariants != null)
+                    on = Plugin.EnableNukeVariants.Value;
+            }
+            catch { }
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(ModUiLang.T("Oritasy nuclear warheads", "Oritasy 核弹头"), GUILayout.Width(180f));
+            Color prev = GUI.backgroundColor;
+            GUI.backgroundColor = on ? new Color(0.85f, 0.45f, 0.35f) : Color.white;
+            if (GUILayout.Button(on ? ModUiLang.T("ON", "开") : ModUiLang.T("OFF", "关"),
+                GUILayout.Width(90f), GUILayout.Height(26f)))
+            {
+                on = !on;
+                try
+                {
+                    if (Plugin.EnableNukeVariants != null)
+                        Plugin.EnableNukeVariants.Value = on;
+                }
+                catch { }
+                try
+                {
+                    if (Plugin.AiNukeChance != null)
+                        Plugin.AiNukeChance.Value = on ? 0.15f : 0f;
+                }
+                catch { }
+            }
+            GUI.backgroundColor = prev;
+            GUILayout.Label(on ? ModUiLang.T("  [ON]", "  [开]") : ModUiLang.T("  [OFF]", "  [关]"),
+                GUILayout.Width(56f));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            GUILayout.Label(
+                on
+                    ? ModUiLang.T(
+                        "Oritasy [IAL]/[10kt] clones are in the hangar. AI may pick them (~15%). Vanilla nukes unchanged.",
+                        "机库有 Oritasy [IAL]/[10kt] 核弹头，AI 约 15% 会选用。原版核弹不变。")
+                    : ModUiLang.T(
+                        "Oritasy-series nuclear warheads hidden. Player and AI cannot equip them. Vanilla Genie / tacNuke stay.",
+                        "关闭 Oritasy 系列核弹头：玩家和 AI 都无法选用。原版精灵 / 战术核仍可用。"),
+                _bodyStyle);
         }
 
         private static void DrawUnrestrictedMountToggle()

@@ -1,3 +1,5 @@
+using System.Reflection;
+using HarmonyLib;
 using UnityEngine;
 
 namespace Oritasy
@@ -8,6 +10,7 @@ namespace Oritasy
     /// </summary>
     internal static class AiCombatEvadeService
     {
+        private static FieldInfo CmStationsField;
         internal const float BvrMissileDistM = 3800f;
         internal const float BvrImpactSec = 4.8f;
         internal const float KnifeFightM = 3000f;
@@ -220,7 +223,7 @@ namespace Oritasy
 
         /// <summary>
         /// Aircraft carry flares, not chaff. Never call ChooseCountermeasure — it switches
-        /// to an empty chaff station and then Deploy/Pop does nothing.
+        /// the selected station (empty chaff / jammer) and then Deploy/Pop does nothing.
         /// </summary>
         internal static bool IsIrThreat(Missile m)
         {
@@ -241,14 +244,74 @@ namespace Oritasy
         {
             if (ac == null)
                 return;
+            CountermeasureManager mgr = null;
+            byte saved = 0;
+            bool haveSaved = false;
             try
             {
-                if (ac.countermeasureManager != null)
-                    ac.countermeasureManager.PopFlares();
+                mgr = ac.countermeasureManager;
+                if (mgr != null)
+                {
+                    saved = mgr.activeIndex;
+                    haveSaved = true;
+                }
+            }
+            catch { }
+            try
+            {
+                if (mgr != null)
+                    mgr.PopFlares();
                 else
                     ac.Countermeasures(true, 0);
             }
             catch { }
+            if (haveSaved && mgr != null)
+                RestoreSelectedStation(mgr, ac, saved);
+        }
+
+        internal static void RestoreSelectedStation(CountermeasureManager mgr, Aircraft ac, byte index)
+        {
+            if (mgr == null)
+                return;
+            try
+            {
+                if (mgr.activeIndex == index)
+                    return;
+            }
+            catch { }
+            try { mgr.activeIndex = index; }
+            catch { }
+            try
+            {
+                if (CmStationsField == null)
+                    CmStationsField = AccessTools.Field(typeof(CountermeasureManager), "countermeasureStations");
+                if (CmStationsField == null)
+                {
+                    mgr.UpdateHUD();
+                    return;
+                }
+                System.Collections.IList stations = CmStationsField.GetValue(mgr) as System.Collections.IList;
+                if (stations == null || index >= stations.Count)
+                {
+                    mgr.UpdateHUD();
+                    return;
+                }
+                object st = stations[index];
+                if (st == null)
+                {
+                    mgr.UpdateHUD();
+                    return;
+                }
+                MethodInfo set = AccessTools.Method(st.GetType(), "SetActive");
+                if (set != null)
+                    set.Invoke(st, new object[] { ac });
+                mgr.UpdateHUD();
+            }
+            catch
+            {
+                try { mgr.UpdateHUD(); }
+                catch { }
+            }
         }
 
         internal static bool IsLongRange39(float missileDist, float impactSec, float targetDist)

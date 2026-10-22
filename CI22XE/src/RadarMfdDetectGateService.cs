@@ -30,7 +30,9 @@ namespace Oritasy
         {
             if (tacRadarOn)
                 return Path.TacRadarOn;
-            if (tacWidgets)
+            // Widgets-only is a false positive on Blueprinter cockpits
+            // (radarCenter always present). Require the actual radar.
+            if (tacWidgets && radarActivated)
                 return Path.TacWidgets;
             if (virtualMfdRadarPage)
                 return Path.VirtualMfd;

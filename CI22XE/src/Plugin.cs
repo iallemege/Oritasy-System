@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -12,7 +14,7 @@ namespace Oritasy
 {
     /// <summary>
     /// Oritasy pack:
-    /// - Nuke resist: aircraft (stronger) / buildings; half vehicles/ships
+    /// - Nuke resist: aircraft (stronger); buildings none; half vehicles/ships
     /// - Aircraft: power buffs, name/code +XE, encyclopedia [Oritasy]
     /// - Ships: power ×1.5, suffix NE, encyclopedia [Thanos]
     /// - Ground vehicles: power ×1.1, suffix TE, encyclopedia [Unitas]
@@ -20,6 +22,7 @@ namespace Oritasy
     /// - Per-airframe F1 Oritasy System GUI; CI-22 extras
     /// </summary>
     [BepInPlugin(PluginInfo.GUID, PluginInfo.PluginName, PluginInfo.Version)]
+    [BepInDependency("bia.runtime")]
     public partial class Plugin : BaseUnityPlugin
     {
         internal const string PackName = "Oritasy";
@@ -31,7 +34,7 @@ namespace Oritasy
         internal const string BuildingBrand = "[Bexur]";
         internal static Plugin Instance;
         internal static ManualLogSource Log;
-        /// <summary>Combined pack: WeXon + TGM-85 reuse this instance so probes show one Harmony owner.</summary>
+        /// <summary>Combined pack: hosted WeXon systems reuse this Harmony id.</summary>
         internal static Harmony SharedHarmony;
 
         internal static ConfigEntry<bool> AffectAllAircraft;
@@ -74,6 +77,7 @@ namespace Oritasy
         internal static ConfigEntry<float> MissileCameraWidth;
         internal static ConfigEntry<bool> ShowAircraftChaseHud;
         internal static ConfigEntry<KeyCode> AircraftChaseHudKey;
+        internal static ConfigEntry<bool> ShowStickDisplay;
         internal static ConfigEntry<bool> ShowAircraftRwr;
         internal static ConfigEntry<KeyCode> AircraftRwrKey;
         internal static ConfigEntry<float> AircraftRwrNormX;
@@ -242,6 +246,7 @@ namespace Oritasy
         };
 
         private static float NextMountRefresh;
+        private static float NextKeEnsure;
         private static float NextLimitsApply;
         private static float NextEncRefresh;
         private static Encyclopedia CachedEncyclopedia;
@@ -334,9 +339,9 @@ namespace Oritasy
             GuiAutoApply = Config.Bind("Limits", "GuiAutoApply", true,
                 "If true, slider changes apply immediately. If false, use Apply button.");
             ShowThirdPersonUi = Config.Bind("Presentation", "ShowThirdPersonUi", true,
-                "Third-person / overlay UI: chase HUD, FLT REC, fuel flash, F1–F11 tip chips, brand, G/RWR. Help chip stays on. Hotkeys remain; F1 System menu is never disabled.");
+                "Third-person / overlay UI: chase HUD, FLT REC, fuel flash, F1–F11 tip chips, brand, G/RWR. Title-screen Help chip is unchanged. Hotkeys remain; F1 System menu is never disabled.");
             ShowHudBrand = Config.Bind("Presentation", "ShowHudBrand", true,
-                "Show 'Oritasy System' on the HUD while flying an XE aircraft.");
+                "Show the Oritasy Canvas watermark at the bottom-right while in a match.");
             UiScaleEnabled = Config.Bind("Presentation", "UiScaleEnabled", true,
                 "When game resolution exceeds UiScaleRefWidth/Height, scale all Oritasy IMGUI by UiScaleLargeFactor.");
             UiScaleRefWidth = Config.Bind("Presentation", "UiScaleRefWidth", 1920f,
@@ -374,7 +379,9 @@ namespace Oritasy
                 "Nose-pointing HUD in aircraft third-person chase/orbit (external) camera.");
             AircraftChaseHudKey = Config.Bind("Presentation", "AircraftChaseHudKey", KeyCode.F8,
                 "Toggle aircraft external-view nose HUD (chase/orbit).");
-            ShowAircraftRwr = Config.Bind("Presentation", "AircraftRwr", true,
+            ShowStickDisplay = Config.Bind("Presentation", "StickDisplay", true,
+                "Show the bottom-right stick / throttle panel. Independent of chase HUD.");
+            ShowAircraftRwr = Config.Bind("Presentation", "AircraftRwr", false,
                 "War Thunder-style circular RWR while flying (radar lock + missile launch warnings).");
             AircraftRwrKey = Config.Bind("Presentation", "AircraftRwrKey", KeyCode.F11,
                 "Open RWR layout GUI (position / size).");
@@ -391,11 +398,15 @@ namespace Oritasy
             BeginnerAssist.Bind(Config);
             AerialResupply.Bind(Config);
             AiCombatBrain.Bind(Config);
+            AiCombatNnService.Bind(Config);
+            InfantryModeService.Bind(Config);
             AiCombatSmarts.Bind(Config);
             DynamicMusic.Bind(Config);
             MissileAudio.Bind(Config);
             AceRadioChatter.Bind(Config);
             GameUnitDisplayService.Bind(Config);
+            AirframeWearService.Bind(Config);
+            AirframeWearGui.Bind(Config);
             ShowGMeter = Config.Bind("Presentation", "ShowGMeter", true,
                 "Show a right-side vertical G-force meter for the local aircraft.");
             // F5 reserved for private messages — G-meter stays on via ShowGMeter (no hotkey).
@@ -405,12 +416,9 @@ namespace Oritasy
                 GMeterKey.Value = KeyCode.None;
             EnhanceStatusDisplay = Config.Bind("Presentation", "EnhanceStatusDisplay", true,
                 "Enlarge the lower-right aircraft damage silhouette, keep it visible, and use high-contrast part colors.");
-            RocketCcipHud.Bind(Config);
-            AirportIlsHud.Bind(Config);
             AirportDefection.Bind(Config);
             ReverseThrustService.Bind(Config);
             EngineStartService.Bind(Config);
-            AirframeWearGui.Bind(Config);
             AerialResupply.Bind(Config);
             WingmanService.Bind(Config);
             IlsSettingsMenu.Bind(Config);
@@ -444,13 +452,15 @@ namespace Oritasy
                 "Legacy CI-22 display override; XE brand table usually wins.");
             Ci22Code = Config.Bind("CI22XE", "Code", "CI-22XE", "CI-22 code override");
 
+            ModularArmorService.Bind(Config);
+            EmpPulseService.Bind(Config);
             NukeShockResist = Config.Bind("NukeResist", "Enabled", true,
-                "Nuke resist: aircraft Full; buildings half (opt); ships 3x (opt); vehicles half.");
-            // Baseline ~0.8% / 0.6%; BuildingHalfResist → 2x; NavalTripleResist → /3; vehicles 2x
+                "Nuke resist: aircraft Full; buildings none; ships 3x (opt); vehicles half.");
+            // Baseline ~0.8% / 0.6%; buildings excluded; NavalTripleResist → /3; vehicles 2x
             NukeShockFactor = Config.Bind("NukeResist", "ShockFactor", 0.008f,
-                "Baseline shock multiplier (0.008 = ~0.8%). Buildings/ships/vehicles scale from this.");
+                "Baseline shock multiplier (0.008 = ~0.8%). Ships/vehicles scale from this. Buildings excluded.");
             NukeBlastFactor = Config.Bind("NukeResist", "BlastDamageFactor", 0.006f,
-                "Baseline blast HP multiplier (0.006 = ~0.6%). Buildings/ships/vehicles scale from this.");
+                "Baseline blast HP multiplier (0.006 = ~0.6%). Ships/vehicles scale from this. Buildings excluded.");
             // Aircraft: +0.1% resist vs previous 0.8%/0.6% → take 0.7% / 0.5%
             NukeAircraftShockFactor = Config.Bind("NukeResist", "AircraftShockFactor", 0.007f,
                 "Aircraft shock multiplier (0.007 = ~0.7%).");
@@ -460,7 +470,7 @@ namespace Oritasy
             NukeBlastThreshold = Config.Bind("NukeResist", "BlastThreshold", 0f,
                 "Scale blastDamage at or above this. 0 = all blast HP damage on protected units.");
             BuildingHalfResist = Config.Bind("NukeResist", "BuildingHalfResist", true,
-                "Buildings: half nuclear resist (2× damage vs Full baseline).");
+                "Unused. Buildings have no nuke resist (vanilla shock/blast + stripped armor).");
             NavalTripleResist = Config.Bind("NukeResist", "NavalTripleResist", true,
                 "Ships: triple nuclear resist (1/3 damage vs Full baseline). Off = half-resist.");
 
@@ -481,6 +491,7 @@ namespace Oritasy
                 "AAA turret lockTime multiplier (lower = locks faster).");
             Artillery155AaEnabled = Config.Bind("FleetTE", "Artillery155AaEnabled", true,
                 "Let 155mm guided artillery engage large aircraft only (bombers / VL-49), at low priority vs ground.");
+            RadarWarfare.Bind(Config);
 
             if (Mathf.Abs(NukeShockFactor.Value - 0.04f) < 0.0005f)
                 NukeShockFactor.Value = 0.008f;
@@ -495,28 +506,25 @@ namespace Oritasy
                 NukeAircraftBlastFactor.Value = 0.005f;
 
             DebugLog = Config.Bind("General", "DebugLog", false, "Verbose logging");
-            // Bind Radar/CCIP before PerfMode so one-shot LowEnd gates can touch their entries.
-            RadarMfdOverlay.Bind(Config);
             ChineseFontPatch.Bind(Config);
             GameZhLocalizer.Bind();
+            GitHubUpdateService.Bind(Config);
             PerfMode.Bind(Config);
             PerfProbeMenu.Bind(Config);
             MotionInterpService.Bind(Config);
-            EngineQualityService.Bind(Config);
             OritasyWorker.EnsureStarted();
 
             // Combined pack: one Harmony id for Oritasy + hosted WeXon (no second owner).
             SharedHarmony = new Harmony(PluginInfo.GUID);
             PatchOwnNamespace(SharedHarmony);
+            BlueprinterCompat.TryPatch(SharedHarmony);
             ChineseFontPatch.EnsureLoaded();
             OritasyCjkAssetPack.EnsureLoaded();
             OritasyCjkAssetPack.PatchHarmony(SharedHarmony);
             ChineseTmpFontService.EnsureReady();
             GameZhLocalizer.PatchHarmony(SharedHarmony);
-            HookWeXonMissileCameraBridge();
-            // Combined pack: host TGM-85 then WeXon on this GameObject (no second BepInPlugin).
-            // Kh85 patches first so WeXon SpawnMissile/Steering postfixes still run after Kh85 OnSpawned.
-            TryStartHostedKh85();
+            // Combined pack: host WeXon systems (career / F9 / multi-mode) on this GameObject.
+            // TGM-85 / ACM-119 / AAM-2CV are standalone VeyrnWeapons.dll — do not StartHosted Kh85.
             TryStartHostedWeXon();
             OritasyAntiTamper.Touch();
             if (Log != null)
@@ -538,29 +546,6 @@ namespace Oritasy
                 Log.LogInfo(PluginInfo.PluginName + " " + PluginInfo.DisplayRelease
                     + " (asm " + PluginInfo.Version + ") loaded (aircraft XE / ships NE / vehicles TE). "
                     + "F1 = System · Profile = music beta.");
-            }
-        }
-
-        /// <summary>Wire WeXon AGM-T cluster handoff → missile PiP (reflection keeps Air-only builds compiling).</summary>
-        private static void HookWeXonMissileCameraBridge()
-        {
-            try
-            {
-                Type bridge = FindMissileCameraBridgeType();
-                if (bridge == null)
-                    return;
-                FieldInfo notify = bridge.GetField("NotifySpawn", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-                FieldInfo handoff = bridge.GetField("HandoffCluster", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-                if (notify != null)
-                    notify.SetValue(null, new Action<Missile>(MissileCameraHud.NotifySpawn));
-                if (handoff != null)
-                    handoff.SetValue(null, new Action<Missile[]>(MissileCameraHud.HandoffCluster));
-                Log.LogInfo("Missile camera bridged to " + bridge.FullName + " cluster handoff");
-            }
-            catch (Exception ex)
-            {
-                if (DebugLog != null && DebugLog.Value)
-                    Log.LogWarning("WeXon camera bridge: " + ex.Message);
             }
         }
 
@@ -602,64 +587,6 @@ namespace Oritasy
             }
         }
 
-        /// <summary>Combined Oritasy.dll embeds Kh85MT.Plugin — host without a second [BepInPlugin].</summary>
-        private void TryStartHostedKh85()
-        {
-            try
-            {
-#if ORITASY_COMBINED
-                Kh85MT.Plugin.StartHosted(this, Logger);
-#else
-                Type t = Assembly.GetExecutingAssembly().GetType("Kh85MT.Plugin");
-                if (t == null)
-                    return;
-                MethodInfo m = t.GetMethod("StartHosted",
-                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                if (m == null)
-                    return;
-                m.Invoke(null, new object[] { this, Logger });
-#endif
-            }
-            catch (Exception ex)
-            {
-                Log.LogWarning("TGM-85 StartHosted: " + DescribeHostedEx(ex));
-            }
-        }
-
-        /// <summary>WeXon / VeyrnAcm / combined Oritasy.dll — search loaded assemblies.</summary>
-        private static Type FindMissileCameraBridgeType()
-        {
-            string[] names = new string[]
-            {
-                "WeXon.MissileCameraBridge",
-                "VeyrnAcm.MissileCameraBridge"
-            };
-            Assembly self = Assembly.GetExecutingAssembly();
-            for (int n = 0; n < names.Length; n++)
-            {
-                Type t = self.GetType(names[n]);
-                if (t != null)
-                    return t;
-            }
-            try
-            {
-                Assembly[] asms = AppDomain.CurrentDomain.GetAssemblies();
-                for (int i = 0; i < asms.Length; i++)
-                {
-                    Assembly a = asms[i];
-                    if (a == null)
-                        continue;
-                    for (int n = 0; n < names.Length; n++)
-                    {
-                        Type t = a.GetType(names[n]);
-                        if (t != null)
-                            return t;
-                    }
-                }
-            }
-            catch { }
-            return null;
-        }
 
         private static bool _harmonyApplied;
 
@@ -678,17 +605,350 @@ namespace Oritasy
                     continue;
                 if (t.Namespace == null || t.Namespace != ns)
                     continue;
+                if (!TypeHasHarmonyPatch(t))
+                    continue;
+                if (!HarmonyTypeReady(t))
+                    continue;
+                StampHarmonyApply(t);
                 try { harmony.CreateClassProcessor(t).Patch(); }
                 catch (Exception ex)
                 {
-                    if (DebugLog != null && DebugLog.Value)
+                    if (Log != null)
                         Log.LogWarning("Harmony patch " + t.Name + ": " + ex.Message);
                 }
             }
         }
 
+        private static void StampHarmonyApply(Type t)
+        {
+            if (t == null)
+                return;
+            try
+            {
+                string dir = Paths.BepInExRootPath;
+                if (string.IsNullOrEmpty(dir))
+                    return;
+                File.WriteAllText(Path.Combine(dir, "OritasyHarmonyLast.txt"), t.FullName ?? t.Name);
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// HarmonyX native-crashes in MonoMod (IsValueTypeImpl) when original is
+        /// null, generic jobs Ptr&lt;T&gt;, or a Nullable overload.
+        /// </summary>
+        private static bool HarmonyTypeReady(Type t)
+        {
+            try
+            {
+                MethodInfo prepare = t.GetMethod("Prepare",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                    null, Type.EmptyTypes, null);
+                if (prepare != null && prepare.ReturnType == typeof(bool))
+                {
+                    object pv = prepare.Invoke(null, null);
+                    if (pv is bool && !(bool)pv)
+                        return false;
+                }
+
+                MethodInfo tm = t.GetMethod("TargetMethod",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                    null, Type.EmptyTypes, null);
+                if (tm != null)
+                {
+                    object mb = tm.Invoke(null, null);
+                    MethodInfo orig = mb as MethodInfo;
+                    if (orig == null)
+                    {
+                        if (Log != null)
+                            Log.LogWarning("Skip Harmony " + t.Name + ": TargetMethod=null");
+                        return false;
+                    }
+                    if (MethodUnsafeToDetour(orig))
+                    {
+                        if (Log != null)
+                            Log.LogWarning("Skip Harmony " + t.Name + ": unsafe "
+                                + orig.DeclaringType.Name + "." + orig.Name);
+                        return false;
+                    }
+                }
+
+                object[] attrs = t.GetCustomAttributes(typeof(HarmonyPatch), true);
+                Type classDt = null;
+                string classMn = null;
+                Type[] classArgs = null;
+                MethodType classMt = MethodType.Normal;
+                if (attrs != null)
+                {
+                    for (int i = 0; i < attrs.Length; i++)
+                    {
+                        HarmonyPatch hp = attrs[i] as HarmonyPatch;
+                        if (hp == null || hp.info == null)
+                            continue;
+                        if (hp.info.declaringType != null)
+                            classDt = hp.info.declaringType;
+                        if (!string.IsNullOrEmpty(hp.info.methodName))
+                            classMn = hp.info.methodName;
+                        if (hp.info.argumentTypes != null && hp.info.argumentTypes.Length > 0)
+                            classArgs = hp.info.argumentTypes;
+                        if (hp.info.methodType.HasValue)
+                            classMt = hp.info.methodType.Value;
+                    }
+                }
+
+                if (classDt != null && !string.IsNullOrEmpty(classMn))
+                {
+                    MethodInfo found = ResolveNamedMethod(classDt, classMn, classArgs, classMt);
+                    if (found == null)
+                    {
+                        if (Log != null)
+                            Log.LogWarning("Skip Harmony " + t.Name + ": missing "
+                                + classDt.Name + "." + classMn);
+                        return false;
+                    }
+                    if (MethodUnsafeToDetour(found))
+                    {
+                        if (Log != null)
+                            Log.LogWarning("Skip Harmony " + t.Name + ": unsafe "
+                                + classDt.Name + "." + classMn);
+                        return false;
+                    }
+                }
+
+                MethodInfo[] methods = t.GetMethods(
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                for (int m = 0; m < methods.Length; m++)
+                {
+                    object[] mattrs = methods[m].GetCustomAttributes(typeof(HarmonyPatch), true);
+                    if (mattrs == null)
+                        continue;
+                    Type dt = classDt;
+                    string name = null;
+                    Type[] args = null;
+                    MethodType mt = MethodType.Normal;
+                    for (int a = 0; a < mattrs.Length; a++)
+                    {
+                        HarmonyPatch hp = mattrs[a] as HarmonyPatch;
+                        if (hp == null || hp.info == null)
+                            continue;
+                        if (hp.info.declaringType != null)
+                            dt = hp.info.declaringType;
+                        if (!string.IsNullOrEmpty(hp.info.methodName))
+                            name = hp.info.methodName;
+                        if (hp.info.argumentTypes != null && hp.info.argumentTypes.Length > 0)
+                            args = hp.info.argumentTypes;
+                        if (hp.info.methodType.HasValue)
+                            mt = hp.info.methodType.Value;
+                    }
+                    if (dt == null || string.IsNullOrEmpty(name) || args == null || args.Length == 0)
+                        continue;
+                    MethodInfo foundM = ResolveNamedMethod(dt, name, args, mt);
+                    if (foundM == null)
+                    {
+                        if (Log != null)
+                            Log.LogWarning("Skip Harmony " + t.Name + ": missing "
+                                + dt.Name + "." + name + " (" + args.Length + " args)");
+                        return false;
+                    }
+                    if (MethodUnsafeToDetour(foundM))
+                    {
+                        if (Log != null)
+                            Log.LogWarning("Skip Harmony " + t.Name + ": unsafe "
+                                + dt.Name + "." + name);
+                        return false;
+                    }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (Log != null)
+                    Log.LogWarning("Skip Harmony " + t.Name + ": " + ex.Message);
+                return false;
+            }
+        }
+
+        private static MethodInfo ResolveNamedMethod(Type dt, string mn, Type[] args, MethodType mt)
+        {
+            if (dt == null || string.IsNullOrEmpty(mn))
+                return null;
+            if (mt == MethodType.Getter)
+                return AccessTools.PropertyGetter(dt, mn);
+            if (mt == MethodType.Setter)
+                return AccessTools.PropertySetter(dt, mn);
+            BindingFlags flags = BindingFlags.Instance | BindingFlags.Static
+                | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+            MethodInfo[] methods = dt.GetMethods(flags);
+            MethodInfo match = null;
+            int named = 0;
+            int i;
+            for (i = 0; i < methods.Length; i++)
+            {
+                if (methods[i].Name != mn)
+                    continue;
+                named++;
+                if (args != null && args.Length > 0)
+                {
+                    if (!ParamsMatch(methods[i], args))
+                        continue;
+                    return methods[i];
+                }
+                if (match == null)
+                    match = methods[i];
+            }
+            if (args != null && args.Length > 0)
+            {
+                methods = dt.GetMethods(BindingFlags.Instance | BindingFlags.Static
+                    | BindingFlags.Public | BindingFlags.NonPublic);
+                for (i = 0; i < methods.Length; i++)
+                {
+                    if (methods[i].Name == mn && ParamsMatch(methods[i], args))
+                        return methods[i];
+                }
+                return null;
+            }
+            if (named > 1)
+                return null;
+            if (match != null)
+                return match;
+            methods = dt.GetMethods(BindingFlags.Instance | BindingFlags.Static
+                | BindingFlags.Public | BindingFlags.NonPublic);
+            named = 0;
+            match = null;
+            for (i = 0; i < methods.Length; i++)
+            {
+                if (methods[i].Name != mn)
+                    continue;
+                named++;
+                if (match == null)
+                    match = methods[i];
+            }
+            if (named > 1)
+                return null;
+            return match;
+        }
+
+        private static bool ParamsMatch(MethodInfo mi, Type[] args)
+        {
+            if (mi == null || args == null)
+                return false;
+            ParameterInfo[] ps = mi.GetParameters();
+            if (ps.Length != args.Length)
+                return false;
+            int p;
+            for (p = 0; p < ps.Length; p++)
+            {
+                Type want = args[p];
+                Type have = ps[p].ParameterType;
+                if (have.IsByRef)
+                    have = have.GetElementType();
+                if (want.IsByRef)
+                    want = want.GetElementType();
+                if (have != want)
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool MethodUnsafeToDetour(MethodInfo mi)
+        {
+            if (mi == null)
+                return true;
+            if (MethodLooksLikeUnityJob(mi))
+                return true;
+            if (IsUnsafeHarmonyType(mi.ReturnType))
+                return true;
+            ParameterInfo[] ps = mi.GetParameters();
+            int i;
+            for (i = 0; i < ps.Length; i++)
+            {
+                if (IsUnsafeHarmonyType(ps[i].ParameterType))
+                    return true;
+            }
+            try
+            {
+                MethodBody body = mi.GetMethodBody();
+                if (body != null)
+                {
+                    System.Collections.Generic.IList<LocalVariableInfo> locs = body.LocalVariables;
+                    if (locs != null)
+                    {
+                        for (i = 0; i < locs.Count; i++)
+                        {
+                            if (IsUnsafeHarmonyType(locs[i].LocalType))
+                                return true;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private static bool MethodLooksLikeUnityJob(MethodInfo mi)
+        {
+            if (mi == null || mi.DeclaringType == null)
+                return false;
+            string n = mi.Name;
+            if (n.IndexOf("Job", StringComparison.Ordinal) >= 0)
+                return true;
+            Type dt = mi.DeclaringType;
+            if (n == "Update" || n == "LateUpdate")
+            {
+                if (typeof(GroundVehicle).IsAssignableFrom(dt) || typeof(Ship).IsAssignableFrom(dt))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsUnsafeHarmonyType(Type t)
+        {
+            if (t == null)
+                return true;
+            if (t.IsByRef || t.IsPointer)
+                t = t.GetElementType();
+            if (t == null)
+                return true;
+            string n = t.Name;
+            if (n == "Ptr`1" || n == "PtrAllocation`1" || n == "NativeArray`1"
+                || n == "JobHandle" || n == "UniTask" || n == "UniTask`1")
+                return true;
+            if (!t.IsGenericType)
+                return false;
+            Type g = t.GetGenericTypeDefinition();
+            if (g == typeof(Nullable<>))
+                return true;
+            string gn = g.Name;
+            return gn == "Ptr`1" || gn == "PtrAllocation`1" || gn == "NativeArray`1"
+                || gn == "UniTask`1";
+        }
+
+        private static bool TypeHasHarmonyPatch(Type t)
+        {
+            object[] onType = t.GetCustomAttributes(typeof(HarmonyPatch), false);
+            if (onType != null && onType.Length > 0)
+                return true;
+            MethodInfo[] methods = t.GetMethods(
+                BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                if (methods[i].IsDefined(typeof(HarmonyPatch), false))
+                    return true;
+            }
+            return false;
+        }
+
+        [SkipLocalsInit]
         private void Update()
         {
+            bool infantryOn = InfantryModeService.Active;
+            if (!infantryOn && Time.frameCount % 30 == 1)
+            {
+                IcarusHangarSpreadService.TryPatchIcarus(SharedHarmony);
+                BlueprinterCompat.TryPatch(SharedHarmony);
+                EmpPulseService.TryPatchBia(SharedHarmony);
+            }
+            BaasImportService.Tick();
             OritasyWorker.EnsureStarted();
             PerfFrameGate.BeginFrame();
             OritasyWorker.PumpMain(PerfFrameGate.PumpLimit);
@@ -701,8 +961,9 @@ namespace Oritasy
             }
 
             PerfMode.Tick();
-            MotionInterpService.Tick();
-            EngineQualityService.Tick();
+            GitHubUpdateService.Tick();
+            if (!infantryOn)
+                MotionInterpService.Tick();
             PerfProbeMenu.TickInput();
 
             if (UnrestrictedWeapons.Value && Time.unscaledTime >= NextMountRefresh)
@@ -712,28 +973,36 @@ namespace Oritasy
                     RefreshMountCache();
             }
 
+            if (!infantryOn && Time.unscaledTime >= NextKeEnsure)
+            {
+                NextKeEnsure = Time.unscaledTime + 12f;
+                KeAmmoCloneService.Ensure();
+            }
+
             // Critical input + HUD every frame; polish (fonts/music/zh) hitch-gated.
-            // Never skip OnGUI overlay draws — that flickered in-game UI.
+            // Never skip OnGUI overlay draws in-mission — that flickered HUD.
+            bool mainMenu = OritasyPresentation.MainMenuActive
+                || OritasyPresentation.SplashActive;
             if (!PerfProbeService.Sampling)
             {
                 MeasureCriticalTicks();
-                if (PerfMode.AllowSlot(0, 3))
+                if (!infantryOn && !mainMenu && PerfMode.AllowSlot(0, 3))
                     MeasureHudSlot0();
-                if (PerfFrameGate.AllowPolish() && PerfMode.AllowSlot(1, 5))
+                if (!infantryOn && PerfFrameGate.AllowPolish() && PerfMode.AllowSlot(1, 5))
                     MeasurePolishSlot1();
             }
             else
             {
                 PerfProbeService.Measure("Oritasy.Critical", MeasureCriticalTicks);
-                if (PerfMode.AllowSlot(0, 3))
+                if (!infantryOn && !mainMenu && PerfMode.AllowSlot(0, 3))
                     PerfProbeService.Measure("Oritasy.HudSlot0", MeasureHudSlot0);
-                if (PerfFrameGate.AllowPolish() && PerfMode.AllowSlot(1, 5))
+                if (!infantryOn && PerfFrameGate.AllowPolish() && PerfMode.AllowSlot(1, 5))
                     PerfProbeService.Measure("Oritasy.PolishSlot1", MeasurePolishSlot1);
             }
             // Limits stick after Awake/GUI — rare refresh (was 6s; reflection-heavy)
-            if (Time.unscaledTime >= NextLimitsApply)
+            if (!infantryOn && Time.unscaledTime >= NextLimitsApply)
             {
-                NextLimitsApply = Time.unscaledTime + 20f;
+                NextLimitsApply = Time.unscaledTime + 45f;
                 PerfProbeService.Measure("Oritasy.ApplyLimits", ApplyLimitsToAllXeAction);
             }
 
@@ -748,48 +1017,74 @@ namespace Oritasy
             }
         }
 
+        [SkipLocalsInit]
         private static void MeasureCriticalTicks()
         {
             OritasyDevMenu.Tick();
+            if (OritasyPresentation.MainMenuActive)
+            {
+#if ORITASY_COMBINED
+                WeXon.Plugin.HostedTick();
+#endif
+                return;
+            }
             if (JoinMenuFactionFix.JoinMenuOpen())
                 return;
+            if (InfantryModeService.Active)
+            {
+                EmpPulseService.Tick();
+                if (!InfantryModeService.ExternalHost)
+                    InfantryModeService.Tick();
+                GamepadLookService.Tick();
+                return;
+            }
+
+            // --- Every frame: edge-triggered input only ---
             AircraftManeuverGui.TickInput();
             AircraftManeuverGui.TickDeferredApply();
-            OritasyHud.TickAirflowFlag();
-            MissileCameraHud.Tick();
-            // Menu hotkeys MUST run every frame — Input.GetKeyDown is only true for one
-            // frame; staggering F2/F3/F10/F11 made those menus need multiple presses.
             PlayerAutopilot.Tick();
             BeginnerAssist.Tick();
-            AerialResupply.Tick();
-            ComponentRepair.Tick();
-            AirframeWearService.Tick();
-            AirframeWearGui.Tick();
+            MissileCameraHud.Tick();
+            HudPackState.ManualActive = MissileCameraHud.ManualActive;
+            HudPackState.MitlFollowMissile = MissileCameraHud.FollowMissile;
             IlsSettingsMenu.Tick();
             PrivateMessageMenu.Tick();
             HostFundMenu.Tick();
             KillChoiceMenu.Tick();
-            WarThunderRwrHud.Tick();
-            AircraftChaseNoseHud.Tick();
-            GMeterHud.Tick();
-            RocketCcipHud.Tick();
-            AirportDefection.Tick();
-            EngineStartService.Tick();
+            AirframeWearGui.Tick();
             ReverseThrustService.PollAirbrakeToggle();
-            WingmanService.Tick();
+            JammerQte.Tick();
             GamepadLookService.Tick();
+
+            // GetKeyDown paths must stay every frame.
+            AerialResupply.Tick();
+            EngineStartService.Tick();
+            AirframeWearService.Tick(); // internal 20 Hz sim; hold timers every call
+
+            // --- ~10 Hz: no edge-triggered input ---
+            if ((Time.frameCount % 3) == 0)
+            {
+                ComponentRepair.Tick();
+                AirportDefection.Tick();
+                EmpPulseService.Tick();
+                if (!InfantryModeService.ExternalHost)
+                    InfantryModeService.Tick();
+                WingmanService.Tick();
+                WsoCrewOps.Tick();
+            }
 #if ORITASY_COMBINED
-            WeXon.Plugin.HostedTick();
-            Kh85MT.Plugin.HostedTick();
+            // WeXon career / arsenal / analysis: every other frame on LowEnd.
+            if (!PerfMode.IsLow || (Time.frameCount & 1) == 0)
+                WeXon.Plugin.HostedTick();
 #endif
         }
 
         private static void MeasureHudSlot0()
         {
-            OritasyHud.Tick();
-            AirportIlsHud.Tick();
-            RadarMfdOverlay.Tick();
+            if (PerfMode.IsLow)
+                return;
             AceRadioChatter.Tick();
+            CopilotCrewService.Tick();
         }
 
         private static void MeasurePolishSlot1()
@@ -816,21 +1111,86 @@ namespace Oritasy
 
         private static void MeasureFixed()
         {
-            MissileCameraHud.FixedTick();
+            if (InfantryModeService.Active)
+            {
+                EmpPulseService.FixedTick();
+                return;
+            }
             BeginnerAssist.FixedTick();
+            MissileCameraHud.FixedTick();
+            EmpPulseService.FixedTick();
         }
 
         private void OnGUI()
         {
-            // Join / aircraft-select are uGUI. IMGUI chips steal those clicks.
-            if (JoinMenuFactionFix.SelectionUiOpen())
-                return;
             ChineseFontPatch.ApplyGuiSkin();
+            // Main menu / splash: do not pile in-flight IMGUI on vanilla uGUI.
+            if (OritasyPresentation.MainMenuActive || OritasyPresentation.SplashActive)
+            {
+                DrawMainMenuGui();
+                return;
+            }
+            if (WsoCrewOps.WantsDraw())
+            {
+                UiScaleService.BeginGui();
+                try
+                {
+                    WsoCrewOps.Draw();
+                }
+                finally
+                {
+                    UiScaleService.EndGui();
+                }
+            }
+            // Join / aircraft-select are uGUI. IMGUI chips steal those clicks.
+            // Infantry hangar overlay is the exception — it lives on that screen.
+            if (JoinMenuFactionFix.SelectionUiOpen())
+            {
+                UiScaleService.BeginGui();
+                try
+                {
+                    if (!InfantryModeService.ExternalHost)
+                    {
+                        if (InfantryModeService.Active)
+                            InfantryModeService.Draw();
+                    }
+                }
+                finally
+                {
+                    UiScaleService.EndGui();
+                }
+                return;
+            }
             GamepadLookService.ClearImguiFocusIfIdle();
             UiScaleService.BeginGui();
             try
             {
                 DrawOritasyGui();
+                OritasyDevMenu.Draw();
+            }
+            finally
+            {
+                UiScaleService.EndGui();
+            }
+#if ORITASY_COMBINED
+            try
+            {
+                if (!InfantryModeService.Active)
+                    WeXon.Plugin.DrawHostedGui();
+            }
+            catch
+            {
+            }
+#endif
+        }
+
+        private void DrawMainMenuGui()
+        {
+            UiScaleService.BeginGui();
+            try
+            {
+                PerfProbeMenu.Draw();
+                OritasyPresentation.Draw();
             }
             finally
             {
@@ -858,35 +1218,59 @@ namespace Oritasy
 
         private void DrawOritasyGui()
         {
+            EmpPulseService.Draw();
+            NukeFlashService.Draw();
+            if (InfantryModeService.Active && !InfantryModeService.ExternalHost)
+            {
+                InfantryModeService.Draw();
+                return;
+            }
+            if (!InfantryModeService.ExternalHost)
+                InfantryModeService.Draw();
+            if (JammerQte.WantsDraw)
+                JammerQte.Draw();
             // Perf probe draws even during splash / LowEnd early-out.
             PerfProbeMenu.Draw();
             OritasyPresentation.Draw();
             EngineStartService.Draw();
             AirframeWearService.DrawHud();
+            ModularArmorService.DrawHud();
             // First-mission F3 tip draws even while BlocksHud suppresses the rest.
             if (BeginnerAssist.MissionTipActive)
             {
                 BeginnerAssist.DrawGui();
-                RadarMfdOverlay.Draw();
                 AceRadioChatter.Draw();
                 return;
             }
 
+            // LowEnd baseline: skip quiet IMGUI chrome (F-tips / idle overlays).
+            // Menus + MITL camera still draw. Restores a large slice of the 120->30 gap.
+            if (PerfMode.IsLow
+                && !AircraftManeuverGui.IsOpen
+                && !IlsSettingsMenu.MenuOpen
+                && !PrivateMessageMenu.MenuOpen
+                && !HostFundMenu.MenuOpen
+                && !KillChoiceMenu.MenuOpen
+                && !AirframeWearGui.IsOpen
+                && !OritasyDevMenu.IsOpen
+                && !PerfProbeMenu.IsOpen
+                && !MissileCameraHud.ManualActive
+                && !OritasyPresentation.BlocksHud)
+            {
+                return;
+            }
+
             bool menusOpen = AircraftManeuverGui.IsOpen
-                || WarThunderRwrHud.LayoutMenuOpen
                 || IlsSettingsMenu.MenuOpen
                 || PrivateMessageMenu.MenuOpen
                 || HostFundMenu.MenuOpen
                 || KillChoiceMenu.MenuOpen
                 || AirframeWearGui.IsOpen
+                || OritasyDevMenu.IsOpen
                 || OritasyPresentation.BlocksHud
                 || PerfProbeMenu.IsOpen;
-            // Skip optional overlay pile on every tier when those HUDs are off.
-            // High used to draw every overlay every frame and hitch IMGUI.
-            if (!menusOpen && !MissileCameraHud.ManualActive
-                && PerfMode.OptionalHudAllQuiet())
+            if (!menusOpen && PerfMode.OptionalHudAllQuiet())
             {
-                // Keep F2/F3/F4/F5/F6/F7/F9/F10 chips + LAND / repair / AP functional.
                 PlayerAutopilot.DrawGui();
                 BeginnerAssist.DrawGui();
                 IlsSettingsMenu.DrawGui();
@@ -897,43 +1281,30 @@ namespace Oritasy
                 AirframeWearGui.Draw();
                 AceRadioChatter.Draw();
                 AirportDefection.Draw();
-                if (!MissileCameraHud.ManualActive)
-                    GMeterHud.Draw();
                 return;
             }
 
+            // Core MITL camera / stick overlay
+            if (!OritasyPresentation.BlocksHud)
+                MissileCameraHud.Draw();
             if (!OritasyPresentation.BlocksHud)
             {
-                MissileCameraHud.Draw();
-                AircraftChaseNoseHud.Draw();
-                RocketCcipHud.Draw();
-                AirportIlsHud.Draw();
-                WarThunderRwrHud.Draw();
                 PlayerAutopilot.DrawGui();
                 BeginnerAssist.DrawGui();
-                if (!MissileCameraHud.ManualActive)
-                    GMeterHud.Draw();
                 IlsSettingsMenu.DrawGui();
                 PrivateMessageMenu.DrawGui();
                 HostFundMenu.DrawGui();
                 KillChoiceMenu.DrawGui();
                 AerialResupply.DrawGui();
                 AirframeWearGui.Draw();
-                // Independent HUD is missile-pilot only — never while flying the aircraft.
-                OritasyHud.Draw();
                 AircraftManeuverGui.Draw();
                 AceRadioChatter.Draw();
                 AirportDefection.Draw();
             }
-            // Radar overlay: do not gate on F1/welcome/changelog BlocksHud — only skip boot splash.
-            if (!OritasyPresentation.SplashActive)
-                RadarMfdOverlay.Draw();
         }
 
         private void OnDestroy()
         {
-            MissileCameraHud.Shutdown();
-            OritasyHud.Shutdown();
 #if ORITASY_COMBINED
             try { WeXon.PlayerCareer.FlushForQuit(); }
             catch { }
@@ -956,20 +1327,20 @@ namespace Oritasy
         public const string PluginName = "Oritasy";
 #endif
         /// <summary>BepInEx assembly version — bump every release so stale plugin DLLs lose.</summary>
-        public const string Version = "2.9.3";
+        public const string Version = "2.12.16";
 
 #if ORITASY_EDITION_D
         /// <summary>Special Edition D — English-only mod UI.</summary>
-        public const string ReleaseVersion = "0.0.9.193D";
+        public const string ReleaseVersion = "0.0.9.267D";
         public const bool EnglishOnlyEdition = true;
         public const string EditionName = "Special Edition";
-        public const string DisplayRelease = "0.0.9.193D Special Edition";
+        public const string DisplayRelease = "0.0.9.267D Special Edition";
 #else
-        /// <summary>Standard Edition C — bilingual Profile language toggle.</summary>
-        public const string ReleaseVersion = "0.0.9.193C";
+        /// <summary>Standard Edition 240C — bilingual Profile language toggle.</summary>
+        public const string ReleaseVersion = "0.0.9.267C";
         public const bool EnglishOnlyEdition = false;
         public const string EditionName = "Standard";
-        public const string DisplayRelease = "0.0.9.193C";
+        public const string DisplayRelease = "0.0.9.267C";
 #endif
     }
 }

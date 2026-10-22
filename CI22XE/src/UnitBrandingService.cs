@@ -20,13 +20,20 @@ namespace Oritasy
 
         internal static void TryRenameDefinition(AircraftDefinition def)
         {
-            if (!AircraftIdentity.IsXeDefinition(def))
+            if (def == null || !AircraftIdentity.IsXeDefinition(def))
                 return;
+
+            if (!XeFleetCloneService.IsClone(def))
+            {
+                AircraftDefinition clone = XeFleetCloneService.EnsureClone(def, Plugin.GetEncyclopedia());
+                if (clone != null && XeFleetCloneService.IsClone(clone))
+                    return;
+                return;
+            }
 
             XeBrand brand;
             if (!TryResolveBrand(def, out brand))
             {
-                // Fallback: append XE only once
                 if (!Plugin.Touched.AddDef(def.GetInstanceID()))
                     return;
                 def.unitName = AircraftIdentity.AppendXe(def.unitName);
@@ -46,7 +53,7 @@ namespace Oritasy
             GameZhLocalizer.NoteBrandedAircraft(def);
 
             if (Plugin.DebugLog != null && Plugin.DebugLog.Value)
-                Plugin.Log.LogInfo(Plugin.PackName + " rename: " + def.jsonKey + " -> " + def.unitName + " / " + def.code);
+                Plugin.Log.LogInfo(Plugin.PackName + " rename(clone): " + def.jsonKey + " -> " + def.unitName + " / " + def.code);
         }
 
         /// <summary>Write code + localized display name + Veyrn lore onto the definition.</summary>
@@ -69,11 +76,18 @@ namespace Oritasy
         {
             if (def == null || !AircraftIdentity.IsXeDefinition(def))
                 return false;
+            AircraftDefinition live = XeFleetCloneService.ResolveLive(def);
+            if (!XeFleetCloneService.IsClone(live))
+            {
+                live = XeFleetCloneService.EnsureClone(def, Plugin.GetEncyclopedia());
+                if (!XeFleetCloneService.IsClone(live))
+                    return false;
+            }
             XeBrand brand;
-            if (!TryResolveBrand(def, out brand))
+            if (!TryResolveBrand(live, out brand))
                 return false;
-            ApplyBrandFields(def, brand);
-            GameZhLocalizer.NoteBrandedAircraft(def);
+            ApplyBrandFields(live, brand);
+            GameZhLocalizer.NoteBrandedAircraft(live);
             return true;
         }
 
@@ -102,16 +116,16 @@ namespace Oritasy
                     XeEncyclopediaLore.Ci22En, XeEncyclopediaLore.Ci22Zh);
                 return true;
             }
-            if (AircraftIdentity.IsTa30(key))
-            {
-                brand = B("T/A-30XE", "T/A-30XE Super Compass", "T/A-30XE 超罗盘",
-                    XeEncyclopediaLore.Ta30En, XeEncyclopediaLore.Ta30Zh);
-                return true;
-            }
             if (AircraftIdentity.IsVt7(key))
             {
                 brand = B("VT-7XE", "VT-7XE Airspace Vagrant", "VT-7XE 空域流浪者",
                     XeEncyclopediaLore.Vt7En, XeEncyclopediaLore.Vt7Zh);
+                return true;
+            }
+            if (AircraftIdentity.IsTa30(key))
+            {
+                brand = B("T/A-30XE", "T/A-30XE Super Compass", "T/A-30XE 超罗盘",
+                    XeEncyclopediaLore.Ta30En, XeEncyclopediaLore.Ta30Zh);
                 return true;
             }
             if (AircraftIdentity.IsUh90(key))
@@ -174,6 +188,8 @@ namespace Oritasy
                     XeEncyclopediaLore.Ab4En, XeEncyclopediaLore.Ab4Zh);
                 return true;
             }
+            if (AircraftIdentity.IsJ35WyvernKey(key))
+                return false;
             return false;
         }
 
@@ -211,6 +227,9 @@ namespace Oritasy
             SeedOne(add, "AB-4XE Hummingbird", "AB-4XE 蜂鸟");
             SeedOne(add, "Alkyon AB-4", "AB-4XE 蜂鸟");
             SeedOne(add, "AB-4", "AB-4XE 蜂鸟");
+            SeedOne(add, "J-35XE Wyvern", "J-35XE 飞龙");
+            SeedOne(add, "J-35 Draken", "J-35XE 飞龙");
+            SeedOne(add, "J-35XE", "J-35XE 飞龙");
 
             // Full encyclopedia lore EN → ZH (TMP / scan fallback)
             AddLore(add, XeEncyclopediaLore.Ci22En, XeEncyclopediaLore.Ci22Zh);
@@ -226,6 +245,7 @@ namespace Oritasy
             AddLore(add, XeEncyclopediaLore.Ew25En, XeEncyclopediaLore.Ew25Zh);
             AddLore(add, XeEncyclopediaLore.SfbEn, XeEncyclopediaLore.SfbZh);
             AddLore(add, XeEncyclopediaLore.Ab4En, XeEncyclopediaLore.Ab4Zh);
+            AddLore(add, XeEncyclopediaLore.J35En, XeEncyclopediaLore.J35Zh);
         }
 
         private static void AddLore(Action<string, string> add, string enBody, string zhBody)
@@ -256,7 +276,8 @@ namespace Oritasy
 
         private static bool IsSah46(string key)
         {
-            return Contains(key, "SAH-46", "SAH46", "Chicane", "Gulfstream");
+            return Contains(key, "SAH-46", "SAH46", "SAH-64", "SAH64",
+                "Chicane", "Gulfstream");
         }
 
         private static bool Contains(string hay, params string[] needles)

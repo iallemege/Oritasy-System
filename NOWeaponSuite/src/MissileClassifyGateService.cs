@@ -58,13 +58,17 @@ namespace WeXon
             string missileName)
         {
             if (!string.IsNullOrEmpty(definitionJsonKey)
-                && definitionJsonKey.StartsWith("Kh85MT", StringComparison.OrdinalIgnoreCase))
+                && (definitionJsonKey.StartsWith("Kh85MT", StringComparison.OrdinalIgnoreCase)
+                    || definitionJsonKey.StartsWith("TGM85", StringComparison.OrdinalIgnoreCase)))
                 return true;
             if (!string.IsNullOrEmpty(definitionUnitName)
-                && definitionUnitName.IndexOf("TGM-85", StringComparison.OrdinalIgnoreCase) >= 0)
+                && (definitionUnitName.IndexOf("TGM-85", StringComparison.OrdinalIgnoreCase) >= 0
+                    || definitionUnitName.IndexOf("Shardfall", StringComparison.OrdinalIgnoreCase) >= 0))
                 return true;
             if (!string.IsNullOrEmpty(missileName)
-                && missileName.IndexOf("Kh85MT", StringComparison.OrdinalIgnoreCase) >= 0)
+                && (missileName.IndexOf("Kh85MT", StringComparison.OrdinalIgnoreCase) >= 0
+                    || missileName.IndexOf("TGM-85", StringComparison.OrdinalIgnoreCase) >= 0
+                    || missileName.IndexOf("TGM85", StringComparison.OrdinalIgnoreCase) >= 0))
                 return true;
             return false;
         }

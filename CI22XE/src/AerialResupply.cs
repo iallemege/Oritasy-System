@@ -119,7 +119,7 @@ namespace Oritasy
             Aircraft ac = ResolveLocal();
             if (_active)
             {
-                if (ac == null || ac.disabled || MissileCameraHud.ManualActive)
+                if (ac == null || ac.disabled || HudPackState.ManualActive)
                     StopResupply(true, "ABORTED");
                 else
                     TickResupply(ac);
@@ -199,7 +199,7 @@ namespace Oritasy
         private static void DrawCornerHint()
         {
             Aircraft ac = ResolveLocal();
-            if (ac == null || MissileCameraHud.ManualActive)
+            if (ac == null || HudPackState.ManualActive)
                 return;
             if (Event.current != null && Event.current.type != EventType.Repaint)
                 return;
@@ -234,7 +234,7 @@ namespace Oritasy
 
         private static void OpenMenu()
         {
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
             {
                 Flash(UiLang.T("Exit man-in-the-loop first", "请先退出人在回路"));
                 return;
@@ -247,8 +247,8 @@ namespace Oritasy
             }
             if (PlayerAutopilot.MenuOpen)
                 PlayerAutopilot.CloseMenuFromOutside();
-            if (WarThunderRwrHud.LayoutMenuOpen)
-                WarThunderRwrHud.CloseLayoutMenuFromOutside();
+            if (HudPackState.LayoutMenuOpen)
+                HudPackState.CloseRwr();
             if (BeginnerAssist.MenuOpen)
                 BeginnerAssist.CloseMenuFromOutside();
             if (IlsSettingsMenu.MenuOpen)
@@ -259,7 +259,7 @@ namespace Oritasy
                 KillChoiceMenu.CloseMenuFromOutside();
             if (HostFundMenu.MenuOpen)
                 HostFundMenu.CloseMenuFromOutside();
-            AirframeWearGui.CloseFromOutside();
+            HudPackState.CloseWear();
             PlayerAutopilot.CloseWeXonSupportMenu();
             _menuOpen = true;
             CaptureCursor();
@@ -506,7 +506,7 @@ namespace Oritasy
             }
             if (_active)
                 return;
-            if (MissileCameraHud.ManualActive)
+            if (HudPackState.ManualActive)
             {
                 Flash(UiLang.T("Exit man-in-the-loop first", "请先退出人在回路"));
                 return;
