@@ -2,7 +2,7 @@
 
 OritasySS 0.1.3β. This is the latest rework of Oritasy.
 
-本仓库是 Oritasy 的源码。飞机包在 `CI22XE`，武器包在 `NOWeaponSuite`。不包含 TGM-85。
+本仓库是 Oritasy 的源码。
 
 ## 功能介绍
 
@@ -72,24 +72,6 @@ All art assets are either used with authorization or made by the author. Those f
 
 ## 更新说明
 
-下面是 OritasySS 自带说明里的更新记录。
-
-
-# OritasySS v0.1.3β
-
-Pre-release. OritasyCommander calls the breaking sector. A negative reward corrects the weights at once and the order you hear is the corrected direction. After a multiplayer match, or when the game closes after one, the tail of the BepInEx log is uploaded and the link is kept in BepInEx/cache/OritasySS/log-link.txt. The call starts with "Commander calling" and the speaker name is Commander. A meteor rain is a rain of the game's bombs, after the clock runs forward to evening, and the sky fills until the sun is covered. On the M map the network, satellites and hangars are one Theater button in the same dark tabs as the other menus. Space War is UESC against EUC for the last planet, which both navies treat as the Proving Ground (Drain) and shell without picking sides. Hulls read like UESCN BB Nordin. The chart shows each ship's heading. Ships sit at or above 160 km. Inertia is heavy, so reverse thrust is slow and turns are wide. Fleets trade lasers you can see by looking up at night, and they sweep and gatling the ground. The tactics network and Commander have their own Neural Network page. Reverse thrust again cuts the nozzle's forward push, holds a prop at fine pitch in the air, and cancels prop pull on the ground.
-
-# OritasySS v0.1.3
-
-OritasyCommander reads the whole front and calls the player, by heading and range, to the sector that is breaking and hard to reach. Friendlies are tasked there. Enemy depots push a mass of air defence into that same ground, factory output rises with the player's kill rate and the value of the jet they are flying, and those guns prefer the player.
-
-# OritasySS v0.1.2
-
-The hidden-settings code is gone. Flight tuning, supply, landing, display and the profile switches are on the menu from the start. Lighting, the sky, the clock and hiding the UI also live in the separate Oritasy's Shader mod (F2). When that mod is loaded it owns those effects, so they are not applied twice.
-
-# OritasySS v0.1.1
-
-Full release. Everything from the 0.1.1β and 0.1.2δ pre-releases is in it, plus the changes below. Unzip into `BepInEx/plugins/` (the zip holds BIA Runtime 1.0.29, the new version of BIA Runtime 1.0.25, and BIA 1.0.25(SS); delete an old BIA.Runtime_1.0.25.dll). The hidden settings still open with ↑ ↑ ↓ ↓ ← → ← → B A B A in F1 › Hidden settings or on the Profile page.
 
 New:
 - XE / TE / NE modified switches at the top of F1 and of the Profile page. XE turns the modified aircraft (XE names, thrust, airframe strength, fly-by-wire tuning) on or off, TE the modified ground vehicles (TE names, [Unitas], faster driving), NE the modified ships (NE names, [Thanos], faster ships). A change holds from the next start of the game.
